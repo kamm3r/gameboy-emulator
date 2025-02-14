@@ -2,6 +2,20 @@
 
 TODO:better name and readme
 
+```sh
+#test roms
+npx tsx ./src/lib/main.ts ./roms/tetris_world.gb
+```
+
+### TODO
+
+- [x] load roms
+- [ ] cpu
+- [ ] ppu
+- [ ] bus
+- [ ] timer
+- [ ] emulation
+
 References:
 https://gbdev.io/pandocs/
 
