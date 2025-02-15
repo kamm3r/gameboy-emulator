@@ -14,6 +14,15 @@ export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function NO_IMPL(): void {
+  console.error("NOT ?YET IMPLEMENTED\n");
+  process.exit(-5);
+}
+
+export function reverse(value: number): number {
+  return ((value & 0xff00) >> 8) | ((value & 0xff) << 8);
+}
+
 export function stringCopyLimit(source: string, maxLength: number) {
   return source.slice(0, maxLength);
 }

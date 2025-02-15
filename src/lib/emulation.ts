@@ -46,3 +46,5 @@ export function emulation_run(argc: number, argv: string[]): number {
   }
   return 0;
 }
+
+export function emulation_cycles(cpu_cycles: number): void {}

@@ -1,4 +1,4 @@
-import { stringCopyLimit } from "@/lib/common";
+import { NO_IMPL, stringCopyLimit } from "@/lib/common";
 import fs from "node:fs";
 
 type rom_header = {
@@ -162,7 +162,7 @@ export function cart_load(cart: string): boolean {
 
   ctx.header = {
     entry: fileData.readUInt16LE(0x0100),
-    logo: fileData.readUInt16LE(0x0102),
+    logo: fileData.readUInt16LE(0x0104),
     title: fileData.toString("utf8", 0x0134, 0x0143).replace(/\x00/g, ""),
     new_lic_code: fileData.readUInt16BE(0x0144),
     sgb_flag: fileData.readUInt8(0x0146),
@@ -200,9 +200,17 @@ export function cart_load(cart: string): boolean {
   }
   console.log(
     `\t Checksum : ${ctx.header.checksum.toString(16).toUpperCase()} (${
-      checksum & 0xff ? "FAILED" : "PASSED"
+      checksum & 0xff ? "PASSED" : "FAILED"
     })`
   );
 
   return true;
+}
+
+export function cart_read(address: number): number {
+  return ctx.rom_data![address];
+}
+
+export function cart_write(address: number, value: number): void {
+  NO_IMPL();
 }
