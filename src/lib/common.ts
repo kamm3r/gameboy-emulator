@@ -2,8 +2,13 @@ export function BIT(a: number, n: number): number {
   return a & (1 << n) ? 1 : 0;
 }
 
-export function BIT_SET(a: number, n: number, on: boolean): number {
-  return on ? (a |= 1 << n) : (a &= ~(1 << n));
+export function BIT_SET(a: number, n: number, on: number): number {
+  // return on ? (a |= 1 << n) : (a &= ~(1 << n));
+  if (on) {
+    return a | (1 << n);
+  } else {
+    return a & ~(1 << n);
+  }
 }
 
 export function BETWEEN(a: number, b: number, c: number): boolean {
@@ -19,8 +24,40 @@ export function NO_IMPL(): void {
   process.exit(-5);
 }
 
-export function reverse(value: number): number {
-  return ((value & 0xff00) >> 8) | ((value & 0xff) << 8);
+export function formatter(
+  formatString: string,
+  ...args: (number | string)[]
+): string {
+  return formatString.replace(
+    /%(-?)(\d+)?(?:\.(\d+))?([sdX])/g,
+    (match, align, width, precision, type) => {
+      const value = args.shift(); // Get the next argument
+
+      if (value === undefined) {
+        return match; // Return the original match if no argument is provided
+      }
+
+      if (type === "d") {
+        // Format as decimal
+        return value.toString();
+      } else if (type === "s") {
+        // Format as string
+        const str = value.toString();
+        if (align === "-") {
+          return str.padEnd(width ? parseInt(width) : str.length, " ");
+        }
+        return str.padStart(width ? parseInt(width) : str.length, " ");
+      } else if (type === "X") {
+        // Format as hexadecimal (uppercase)
+        return value
+          .toString(16)
+          .toUpperCase()
+          .padStart(width ? parseInt(width) : 0, "0");
+      }
+
+      return match; // Return the original match if no formatting is applied
+    }
+  );
 }
 
 export function stringCopyLimit(source: string, maxLength: number) {

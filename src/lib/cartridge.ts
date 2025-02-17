@@ -1,4 +1,4 @@
-import { NO_IMPL, stringCopyLimit } from "@/lib/common";
+import { formatter, NO_IMPL, stringCopyLimit } from "@/lib/common";
 import fs from "node:fs";
 
 type rom_header = {
@@ -177,31 +177,27 @@ export function cart_load(cart: string): boolean {
   };
 
   console.log("Cartridge Loaded:");
-  console.log(`\t Title    : ${ctx.header.title}`);
+  console.log(formatter("\t Title    : %s", ctx.header.title));
   console.log(
-    `\t Type     : ${ctx.header.type
-      .toString(16)
-      .toUpperCase()} (${cart_type_name()})`
+    formatter("\t Type     : %2.2X (%s)", ctx.header.type, cart_type_name())
   );
-  console.log(`\t ROM Size : ${32 << ctx.header.rom_size} KB`);
+  console.log(formatter("\t ROM Size : %d KB", 32 << ctx.header.rom_size));
+  console.log(formatter("\t RAM Size : %2.2X", ctx.header.ram_size));
   console.log(
-    `\t RAM Size : ${ctx.header.ram_size.toString(16).toUpperCase()}`
+    formatter("\t LIC Code : %2.2X (%s)", ctx.header.lic_code, cart_lic_name())
   );
-  console.log(
-    `\t LIC Code : ${ctx.header.lic_code
-      .toString(16)
-      .toUpperCase()} (${cart_lic_name()})`
-  );
-  console.log(`\t ROM Vers : ${ctx.header.version.toString(16).toUpperCase()}`);
+  console.log(formatter("\t ROM Vers : %2.2X", ctx.header.version));
 
   let checksum = 0;
   for (let address = 0x0134; address <= 0x014c; ++address) {
     checksum = checksum - ctx.rom_data[address] - 1;
   }
   console.log(
-    `\t Checksum : ${ctx.header.checksum.toString(16).toUpperCase()} (${
+    formatter(
+      "\t Checksum : %2.2X (%s)\n",
+      ctx.header.checksum,
       checksum & 0xff ? "PASSED" : "FAILED"
-    })`
+    )
   );
 
   return true;

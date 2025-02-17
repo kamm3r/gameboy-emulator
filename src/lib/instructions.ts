@@ -22,6 +22,8 @@ export const addr_mode = {
   AM_R_A16: "AM_R_A16",
 } as const;
 
+export type AddrMode = (typeof addr_mode)[keyof typeof addr_mode];
+
 export const reg_type = {
   RT_NONE: "RT_NONE",
   RT_A: "RT_A",
@@ -39,6 +41,8 @@ export const reg_type = {
   RT_SP: "RT_SP",
   RT_PC: "RT_PC",
 } as const;
+
+export type RegType = (typeof reg_type)[keyof typeof reg_type];
 
 export const in_type = {
   IN_NONE: "IN_NONE",
@@ -92,6 +96,8 @@ export const in_type = {
   IN_SET: "IN_SET",
 } as const;
 
+export type InType = (typeof in_type)[keyof typeof in_type];
+
 export const cond_type = {
   CT_NONE: "CT_NONE",
   CT_NZ: "CT_NZ",
@@ -100,23 +106,45 @@ export const cond_type = {
   CT_C: "CT_C",
 } as const;
 
+export type CondType = (typeof cond_type)[keyof typeof cond_type];
+
 export type instruction = {
-  type?: keyof typeof in_type;
-  mode?: keyof typeof addr_mode;
-  reg_1?: keyof typeof reg_type;
-  reg_2?: keyof typeof reg_type;
-  cond?: keyof typeof cond_type;
+  type: InType;
+  mode: AddrMode;
+  reg_1?: RegType;
+  reg_2?: RegType;
+  cond?: CondType;
   param?: number;
 };
 
-const instructions: Record<number, instruction> = {
-  0x00: { type: in_type.IN_NOP, mode: addr_mode.AM_IMP },
-  0x05: { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_B },
-  0x0e: { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_C },
-  0xaf: { type: in_type.IN_XOR, mode: addr_mode.AM_R, reg_1: reg_type.RT_A },
-  0xc3: { type: in_type.IN_JP, mode: addr_mode.AM_D16 },
-  0xf3: { type: in_type.IN_DI },
+const instructions: instruction[] = new Array(0x100).fill(undefined);
+instructions[0x00] = { type: in_type.IN_NOP, mode: addr_mode.AM_IMP };
+instructions[0x05] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_B,
 };
+instructions[0x0e] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_C,
+};
+instructions[0xaf] = {
+  type: in_type.IN_XOR,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xc3] = { type: in_type.IN_JP, mode: addr_mode.AM_D16 };
+instructions[0xf3] = { type: in_type.IN_DI };
+
+// const instructions: Record<number, instruction> = {
+//   0x00: { type: in_type.IN_NOP, mode: addr_mode.AM_IMP },
+//   0x05: { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_B },
+//   0x0e: { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_C },
+//   0xaf: { type: in_type.IN_XOR, mode: addr_mode.AM_R, reg_1: reg_type.RT_A },
+//   0xc3: { type: in_type.IN_JP, mode: addr_mode.AM_D16 },
+//   0xf3: { type: in_type.IN_DI },
+// };
 
 export function instruction_by_opcode(opcode: number): instruction {
   return instructions[opcode];
@@ -173,6 +201,13 @@ const inst_lookup: string[] = [
   "IN_SET",
 ];
 
-export function instruction_name(t: keyof typeof in_type): string {
-  return inst_lookup[t];
+const instructionNames = Object.keys(in_type) as Array<InType>;
+const instructionIndexMap = instructionNames.reduce((map, name, index) => {
+  map[in_type[name as keyof typeof in_type]] = index;
+  return map;
+}, {} as { [key in InType]: number });
+
+export function instruction_name(t: InType): string {
+  const index = instructionIndexMap[t];
+  return inst_lookup[index];
 }

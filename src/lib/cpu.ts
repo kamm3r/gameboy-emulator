@@ -6,13 +6,15 @@
 // } as const;
 
 import { bus_read } from "@/lib/bus";
-import { reverse } from "@/lib/common";
+import { formatter, NO_IMPL } from "@/lib/common";
+import { instruction_get_processor } from "@/lib/cpu_proc";
+import { cpu_read_register } from "@/lib/cpu_util";
 import { emulation_cycles } from "@/lib/emulation";
 import {
   addr_mode,
   instruction,
   instruction_by_opcode,
-  reg_type,
+  instruction_name,
 } from "@/lib/instructions";
 
 type cpu_registers = {
@@ -28,14 +30,14 @@ type cpu_registers = {
   SP: number;
 };
 
-type cpu_context = {
+export type cpu_context = {
   registers: cpu_registers;
 
   fetched_data: number;
   memory_destination: number;
   destination_is_memory: boolean;
   current_opcode: number;
-  current_instruction: instruction | undefined;
+  current_instruction: instruction;
 
   halted: boolean;
   stepping: boolean;
@@ -60,64 +62,35 @@ const ctx: cpu_context = {
   memory_destination: 0,
   destination_is_memory: false,
   current_opcode: 0,
-  current_instruction: undefined,
+  current_instruction: {},
   halted: false,
   stepping: false,
   int_master_enabled: false,
 };
 
-function cpu_read_register(reg: keyof typeof reg_type): number {
-  switch (reg) {
-    case reg_type.RT_A:
-      return ctx.registers.A;
-    case reg_type.RT_F:
-      return ctx.registers.F;
-    case reg_type.RT_B:
-      return ctx.registers.B;
-    case reg_type.RT_C:
-      return ctx.registers.C;
-    case reg_type.RT_D:
-      return ctx.registers.D;
-    case reg_type.RT_E:
-      return ctx.registers.E;
-    case reg_type.RT_H:
-      return ctx.registers.H;
-    case reg_type.RT_L:
-      return ctx.registers.L;
-    case reg_type.RT_AF:
-      return reverse((ctx.registers.A << 8) | ctx.registers.F);
-    case reg_type.RT_BC:
-      return reverse((ctx.registers.B << 8) | ctx.registers.C);
-    case reg_type.RT_DE:
-      return reverse((ctx.registers.D << 8) | ctx.registers.E);
-    case reg_type.RT_HL:
-      return reverse((ctx.registers.H << 8) | ctx.registers.L);
-    case reg_type.RT_SP:
-      return ctx.registers.SP;
-    case reg_type.RT_PC:
-      return ctx.registers.PC;
-    default:
-      return 0;
-  }
+export function cpu_init(): void {
+  ctx.registers.PC = 0x100;
+  ctx.registers.A = 0x01;
 }
 
 export function fetch_instruction(): void {
   ctx.current_opcode = bus_read(ctx.registers.PC++);
   ctx.current_instruction = instruction_by_opcode(ctx.current_opcode);
-
-  if (ctx.current_instruction === null) {
-    console.log(`Unknown instruction  \n ${ctx.current_opcode}`);
-    process.exit(-7);
-  }
 }
+
 export function fetch_data(): void {
   ctx.memory_destination = 0;
   ctx.destination_is_memory = false;
-  switch (ctx.current_instruction?.mode) {
+
+  if (ctx.current_instruction === undefined) {
+    return;
+  }
+
+  switch (ctx.current_instruction.mode) {
     case addr_mode.AM_IMP:
       return;
     case addr_mode.AM_R:
-      ctx.fetched_data = cpu_read_register(ctx.current_instruction!.reg_1!);
+      ctx.fetched_data = cpu_read_register(ctx, ctx.current_instruction.reg_1!);
       return;
     case addr_mode.AM_R_D8:
       ctx.fetched_data = bus_read(ctx.registers.PC++);
@@ -135,41 +108,54 @@ export function fetch_data(): void {
       ctx.registers.PC += 2;
       return;
     default:
-      console.log(`Unknown addressing mode\n ${ctx.current_instruction?.mode}`);
+      console.error(
+        formatter(
+          "Unknown Addressing Mode! %d (%02X)\n",
+          ctx.current_instruction.mode,
+          ctx.current_opcode
+        )
+      );
       process.exit(-7);
-      return;
   }
 }
 export function execute(): void {
-  console.log(
-    `Executing instruction \n ${ctx.current_opcode} PC: \n ${ctx.registers.PC}`
-  );
-  console.log("NOt executing yet...\n");
+  const proc = instruction_get_processor(ctx.current_instruction.type);
+
+  if (!proc) {
+    NO_IMPL();
+  }
+  proc(ctx);
 }
 
-export function cpu_init(): void {}
 export function cpu_step(): boolean {
   if (!ctx.halted) {
+    const pc = ctx.registers.PC;
+
     fetch_instruction();
     fetch_data();
+    if (
+      ctx.current_instruction === null ||
+      ctx.current_instruction === undefined
+    ) {
+      console.log(formatter("Unknown instruction  %02X\n", ctx.current_opcode));
+      process.exit(-7);
+    }
+
+    console.log(
+      formatter(
+        "%04X: %-7s (%02X %02X %02X) A: %02X B: %02X C: %02X",
+        pc,
+        instruction_name(ctx.current_instruction.type),
+        ctx.current_opcode,
+        bus_read(pc + 1),
+        bus_read(pc + 2),
+        ctx.registers.A,
+        ctx.registers.B,
+        ctx.registers.C
+      )
+    );
+
     execute();
   }
   return true;
 }
-
-// export class cpu {
-//   REG = new Uint8Array(8);
-//   PC = 0x0000;
-//   SP = 0x0000;
-
-//   A = 0x00;
-//   F = 0x00;
-//   B = 0x00;
-//   C = 0x00;
-//   D = 0x00;
-//   E = 0x00;
-//   H = 0x00;
-//   L = 0x00;
-
-//   constructor() {}
-// }
