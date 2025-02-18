@@ -2,17 +2,9 @@ import { BIT_SET } from "@/lib/common";
 import { in_type, type InType } from "@/lib/instructions";
 import { type cpu_context } from "@/lib/cpu";
 import { emulation_cycles } from "@/lib/emulation";
+import { bus_write } from "@/lib/bus";
+import { cpu_read_register, cpu_set_register } from "@/lib/cpu_util";
 
-function proc_none(ctx: cpu_context): void {
-  console.log("INVALID INSTRUCTION!\n");
-  process.exit(-7);
-}
-
-function proc_nop(ctx: cpu_context): void {}
-function proc_di(ctx: cpu_context): void {
-  ctx.int_master_enabled = false;
-}
-function proc_ld(ctx: cpu_context): void {}
 function cpu_set_flags(
   ctx: cpu_context,
   z: number,
@@ -33,6 +25,48 @@ function cpu_set_flags(
     BIT_SET(ctx.registers.F, 4, c);
   }
 }
+function proc_none(ctx: cpu_context): void {
+  console.log("INVALID INSTRUCTION!\n");
+  process.exit(-7);
+}
+
+function proc_nop(ctx: cpu_context): void {}
+function proc_di(ctx: cpu_context): void {
+  ctx.int_master_enabled = false;
+}
+function proc_ld(ctx: cpu_context): void {
+  if (ctx.destination_is_memory) {
+    // LD (BC), A for instance
+
+    if (ctx.current_instruction.reg_2 >= "RT_AF") {
+      emulation_cycles(1);
+      bus_write(ctx.memory_destination, ctx.fetched_data);
+    } else {
+      bus_write(ctx.memory_destination, ctx.fetched_data);
+    }
+    return;
+  }
+  if (ctx.current_instruction.mode === "AM_HL_SPR") {
+    const hflag =
+      (cpu_read_register(ctx, ctx.current_instruction.reg_2) & 0xf) +
+        (ctx.fetched_data & 0xf) >=
+      0x10;
+    const cflag =
+      (cpu_read_register(ctx, ctx.current_instruction.reg_2) & 0xff) +
+        (ctx.fetched_data & 0xff) >=
+      0x100;
+
+    cpu_set_flags(ctx, 0, 0, hflag, cflag);
+    cpu_set_flags(
+      ctx,
+      ctx.current_instruction.reg_1,
+      cpu_read_register(ctx, ctx.current_instruction.reg_2) + ctx.fetched_data
+    );
+    return;
+  }
+  cpu_set_register(ctx, ctx.current_instruction.reg_1, ctx.fetched_data);
+}
+
 function proc_xor(ctx: cpu_context): void {
   ctx.registers.A ^= ctx.fetched_data & 0xff;
   cpu_set_flags(ctx, ctx.registers.A == 0 ? 1 : 0, 0, 0, 0);
@@ -74,6 +108,7 @@ const processors: Record<InType, (ctx: cpu_context) => void> = {
 };
 
 function instruction_get_processor(type: InType) {
+  console.log(`Getting processor for ${type}`);
   return processors[type];
 }
 

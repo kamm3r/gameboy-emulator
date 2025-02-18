@@ -7,6 +7,7 @@
 
 import { bus_read } from "@/lib/bus";
 import { formatter, NO_IMPL } from "@/lib/common";
+import { fetch_data } from "@/lib/cpu_fetch";
 import { instruction_get_processor } from "@/lib/cpu_proc";
 import { cpu_read_register } from "@/lib/cpu_util";
 import { emulation_cycles } from "@/lib/emulation";
@@ -78,46 +79,6 @@ export function fetch_instruction(): void {
   ctx.current_instruction = instruction_by_opcode(ctx.current_opcode);
 }
 
-export function fetch_data(): void {
-  ctx.memory_destination = 0;
-  ctx.destination_is_memory = false;
-
-  if (ctx.current_instruction === undefined) {
-    return;
-  }
-
-  switch (ctx.current_instruction.mode) {
-    case addr_mode.AM_IMP:
-      return;
-    case addr_mode.AM_R:
-      ctx.fetched_data = cpu_read_register(ctx, ctx.current_instruction.reg_1!);
-      return;
-    case addr_mode.AM_R_D8:
-      ctx.fetched_data = bus_read(ctx.registers.PC++);
-      emulation_cycles(4);
-      ctx.registers.PC++;
-      return;
-    case addr_mode.AM_D16:
-      const low = bus_read(ctx.registers.PC);
-      emulation_cycles(1);
-
-      const high = bus_read(ctx.registers.PC + 1);
-      emulation_cycles(1);
-
-      ctx.fetched_data = low | (high << 8);
-      ctx.registers.PC += 2;
-      return;
-    default:
-      console.error(
-        formatter(
-          "Unknown Addressing Mode! %d (%02X)\n",
-          ctx.current_instruction.mode,
-          ctx.current_opcode
-        )
-      );
-      process.exit(-7);
-  }
-}
 export function execute(): void {
   const proc = instruction_get_processor(ctx.current_instruction.type);
 
@@ -132,7 +93,7 @@ export function cpu_step(): boolean {
     const pc = ctx.registers.PC;
 
     fetch_instruction();
-    fetch_data();
+    fetch_data(ctx);
     if (
       ctx.current_instruction === null ||
       ctx.current_instruction === undefined

@@ -39,3 +39,60 @@ export function cpu_read_register(ctx: cpu_context, reg: RegType): number {
       return 0;
   }
 }
+
+export function cpu_set_register(
+  ctx: cpu_context,
+  reg: RegType,
+  value: number
+): void {
+  switch (reg) {
+    case "RT_A":
+      ctx.registers.A = value & 0xff;
+      break;
+    case "RT_F":
+      ctx.registers.F = value & 0xff;
+      break;
+    case "RT_B":
+      ctx.registers.B = value & 0xff;
+      break;
+    case "RT_C":
+      ctx.registers.C = value & 0xff;
+      break;
+    case "RT_D":
+      ctx.registers.D = value & 0xff;
+      break;
+    case "RT_E":
+      ctx.registers.E = value & 0xff;
+      break;
+    case "RT_H":
+      ctx.registers.H = value & 0xff;
+      break;
+    case "RT_L":
+      ctx.registers.L = value & 0xff;
+      break;
+    case "RT_AF":
+      ctx.registers.A = (reverse(value) >> 8) & 0xff;
+      ctx.registers.F = reverse(value) & 0xff;
+      break;
+    case "RT_BC":
+      ctx.registers.B = (reverse(value) >> 8) & 0xff;
+      ctx.registers.C = reverse(value) & 0xff;
+      break;
+    case "RT_DE":
+      ctx.registers.D = (reverse(value) >> 8) & 0xff;
+      ctx.registers.E = reverse(value) & 0xff;
+      break;
+    case "RT_HL":
+      ctx.registers.H = (reverse(value) >> 8) & 0xff;
+      ctx.registers.L = reverse(value) & 0xff;
+      break;
+    case "RT_PC":
+      ctx.registers.PC = value;
+      break;
+    case "RT_SP":
+      ctx.registers.SP = value;
+      break;
+    case "RT_NONE":
+      break;
+  }
+}
