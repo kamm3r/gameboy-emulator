@@ -1,4 +1,4 @@
-import { type cpu_context } from "@/lib/cpu";
+import { cpu_registers, type cpu_context } from "@/lib/cpu";
 import { type RegType } from "@/lib/instructions";
 
 export function reverse(value: number): number {

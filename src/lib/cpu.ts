@@ -9,16 +9,14 @@ import { bus_read } from "@/lib/bus";
 import { formatter, NO_IMPL } from "@/lib/common";
 import { fetch_data } from "@/lib/cpu_fetch";
 import { instruction_get_processor } from "@/lib/cpu_proc";
-import { cpu_read_register } from "@/lib/cpu_util";
 import { emulation_cycles } from "@/lib/emulation";
 import {
-  addr_mode,
   instruction,
   instruction_by_opcode,
   instruction_name,
 } from "@/lib/instructions";
 
-type cpu_registers = {
+export type cpu_registers = {
   A: number;
   F: number;
   B: number;
@@ -44,6 +42,7 @@ export type cpu_context = {
   stepping: boolean;
 
   int_master_enabled: boolean;
+  ie_register: number;
 };
 
 const ctx: cpu_context = {
@@ -67,6 +66,7 @@ const ctx: cpu_context = {
   halted: false,
   stepping: false,
   int_master_enabled: false,
+  ie_register: 0,
 };
 
 export function cpu_init(): void {
@@ -93,6 +93,7 @@ export function cpu_step(): boolean {
     const pc = ctx.registers.PC;
 
     fetch_instruction();
+    emulation_cycles(1);
     fetch_data(ctx);
     if (
       ctx.current_instruction === null ||
@@ -104,7 +105,7 @@ export function cpu_step(): boolean {
 
     console.log(
       formatter(
-        "%04X: %-7s (%02X %02X %02X) A: %02X B: %02X C: %02X",
+        "%04X: %-7s (%02X %02X %02X) A: %02X BC: %02X%02X DE: %02X%02X HL: %02X%02X",
         pc,
         instruction_name(ctx.current_instruction.type),
         ctx.current_opcode,
@@ -112,11 +113,27 @@ export function cpu_step(): boolean {
         bus_read(pc + 2),
         ctx.registers.A,
         ctx.registers.B,
-        ctx.registers.C
+        ctx.registers.C,
+        ctx.registers.D,
+        ctx.registers.E,
+        ctx.registers.H,
+        ctx.registers.L
       )
     );
 
     execute();
   }
   return true;
+}
+
+export function cpu_ie_register(): number {
+  return ctx.ie_register;
+}
+
+export function cpu_set_ie_register(value: number): void {
+  ctx.ie_register = value;
+}
+
+export function cpu_get_register(): cpu_registers {
+  return ctx.registers;
 }

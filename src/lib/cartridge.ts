@@ -208,5 +208,6 @@ export function cart_read(address: number): number {
 }
 
 export function cart_write(address: number, value: number): void {
+  console.log(formatter("cart_write (%04X)\n", address));
   NO_IMPL();
 }
