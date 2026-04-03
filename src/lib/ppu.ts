@@ -56,6 +56,8 @@ export type ppu_context = {
     fetch_entry_data: number[];
   };
   line_sprites: oam_line_entry | null;
+  line_entry_array: oam_line_entry[];
+  line_sprite_count: number;
   fetched_entry_count: number;
   fetched_entries: fetched_sprite[];
   window_line: number;
@@ -85,6 +87,8 @@ const ctx: ppu_context = {
     fetch_entry_data: new Array(16).fill(0),
   },
   line_sprites: null,
+  line_entry_array: [],
+  line_sprite_count: 0,
   fetched_entry_count: 0,
   fetched_entries: [],
   window_line: 0,
@@ -113,6 +117,8 @@ export function ppu_init(): void {
   ctx.pfc.fetch_entry_data = new Array(16).fill(0);
 
   ctx.line_sprites = null;
+  ctx.line_entry_array = [];
+  ctx.line_sprite_count = 0;
   ctx.fetched_entry_count = 0;
   ctx.fetched_entries = [];
   ctx.window_line = 0;

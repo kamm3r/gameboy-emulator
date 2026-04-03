@@ -1,0 +1,222 @@
+import { lcd_get_context, lcd_context } from "./lcd";
+import { ppu_get_context, ppu_context, oam_entry, oam_line_entry, fetched_sprite, fifo_entry } from "./ppu";
+import { cpu_request_interrupt } from "./cpu";
+
+export const XRES = 160;
+export const YRES = 144;
+const LINES_PER_FRAME = 154;
+const TICKS_PER_LINE = 456;
+
+const IT_VBLANK = 0;
+const IT_LCD_STAT = 1;
+const IT_TIMER = 2;
+
+const SS_HBLANK = 0;
+const SS_VBLANK = 1;
+const SS_LYC = 2;
+const SS_OAM = 3;
+
+const MODE_HBLANK = 0;
+const MODE_VBLANK = 1;
+const MODE_OAM = 2;
+const MODE_XFER = 3;
+
+function LCDS_LYC_SET(value: number): void {
+  const lcd = lcd_get_context();
+  if (value) {
+    lcd.ly |= 0x04;
+  } else {
+    lcd.ly &= ~0x04;
+  }
+}
+
+function LCDS_MODE_SET(mode: number): void {
+  const lcd = lcd_get_context();
+  lcd.ly = (lcd.ly & 0xfc) | mode;
+}
+
+function LCDS_STAT_INT(source: number): boolean {
+  const lcd = lcd_get_context();
+  return (lcd.ly & (1 << (source + 3))) !== 0;
+}
+
+export function pipeline_fifo_reset(): void {
+  const ppu = ppu_get_context();
+  ppu.pfc.pixel_fifo.size = 0;
+  ppu.pfc.pixel_fifo.head = null;
+  ppu.pfc.pixel_fifo.tail = null;
+}
+
+export function pipeline_process(): void {
+  const ppu = ppu_get_context();
+  ppu.pfc.pushed_x++;
+}
+
+export function window_visible(): boolean {
+  const lcd = lcd_get_context();
+  return (lcd.lcdc & 0x20) !== 0;
+}
+
+export function increment_ly(): void {
+  const lcd = lcd_get_context();
+  const ppu = ppu_get_context();
+
+  if (window_visible() && lcd.ly >= lcd.win_y && lcd.ly < lcd.win_y + YRES) {
+    ppu.window_line++;
+  }
+
+  lcd.ly++;
+
+  if (lcd.ly === lcd.ly_compare) {
+    LCDS_LYC_SET(1);
+
+    if (LCDS_STAT_INT(SS_LYC)) {
+      cpu_request_interrupt(IT_LCD_STAT);
+    }
+  } else {
+    LCDS_LYC_SET(0);
+  }
+}
+
+export function load_line_sprites(): void {
+  const lcd = lcd_get_context();
+  const ppu = ppu_get_context();
+  const cur_y = lcd.ly;
+
+  const sprite_height = (lcd.lcdc & 0x04) ? 16 : 8;
+
+  ppu.line_entry_array = [];
+
+  for (let i = 0; i < 40; i++) {
+    const e = ppu.oam_ram[i];
+
+    if (!e.x) {
+      continue;
+    }
+
+    if (ppu.line_sprite_count >= 10) {
+      break;
+    }
+
+    if (e.y <= cur_y + 16 && e.y + sprite_height > cur_y + 16) {
+      const entry: oam_line_entry = {
+        entry: e,
+        next: null,
+      };
+
+      ppu.line_entry_array.push(entry);
+      ppu.line_sprite_count++;
+
+      if (!ppu.line_sprites || ppu.line_sprites.entry.x > e.x) {
+        entry.next = ppu.line_sprites;
+        ppu.line_sprites = entry;
+        continue;
+      }
+
+      let le = ppu.line_sprites;
+      let prev: oam_line_entry | null = le;
+
+      while (le) {
+        if (le.entry.x > e.x) {
+          if (prev) prev.next = entry;
+          entry.next = le;
+          break;
+        }
+
+        if (!le.next) {
+          le.next = entry;
+          break;
+        }
+
+        prev = le;
+        le = le.next;
+      }
+    }
+  }
+}
+
+export function ppu_mode_oam(): void {
+  const ppu = ppu_get_context();
+
+  if (ppu.line_ticks >= 80) {
+    LCDS_MODE_SET(MODE_XFER);
+
+    ppu.pfc.cur_fetch_state = 0;
+    ppu.pfc.line_x = 0;
+    ppu.pfc.fetch_x = 0;
+    ppu.pfc.pushed_x = 0;
+    ppu.pfc.fifo_x = 0;
+  }
+
+  if (ppu.line_ticks === 1) {
+    ppu.line_sprites = null;
+    ppu.line_sprite_count = 0;
+    ppu.line_entry_array = [];
+
+    load_line_sprites();
+  }
+}
+
+export function ppu_mode_xfer(): void {
+  const ppu = ppu_get_context();
+
+  pipeline_process();
+
+  if (ppu.pfc.pushed_x >= XRES) {
+    pipeline_fifo_reset();
+    LCDS_MODE_SET(MODE_HBLANK);
+
+    if (LCDS_STAT_INT(SS_HBLANK)) {
+      cpu_request_interrupt(IT_LCD_STAT);
+    }
+  }
+}
+
+export function ppu_mode_vblank(): void {
+  const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
+
+  if (ppu.line_ticks >= TICKS_PER_LINE) {
+    increment_ly();
+
+    if (lcd.ly >= LINES_PER_FRAME) {
+      LCDS_MODE_SET(MODE_OAM);
+      lcd.ly = 0;
+      ppu.window_line = 0;
+    }
+
+    ppu.line_ticks = 0;
+  }
+}
+
+let target_frame_time = Math.floor(1000 / 60);
+let prev_frame_time = 0;
+let start_timer = 0;
+let frame_count = 0;
+
+export function ppu_mode_hblank(): void {
+  const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
+
+  if (ppu.line_ticks >= TICKS_PER_LINE) {
+    increment_ly();
+
+    if (lcd.ly >= YRES) {
+      LCDS_MODE_SET(MODE_VBLANK);
+      cpu_request_interrupt(IT_VBLANK);
+
+      if (LCDS_STAT_INT(SS_VBLANK)) {
+        cpu_request_interrupt(IT_LCD_STAT);
+      }
+
+      ppu.current_frame++;
+
+      frame_count++;
+      prev_frame_time = 0;
+    } else {
+      LCDS_MODE_SET(MODE_OAM);
+    }
+
+    ppu.line_ticks = 0;
+  }
+}
