@@ -98,6 +98,20 @@ export function ppu_get_context(): ppu_context {
   return ctx;
 }
 
+const MODE_OAM = 2;
+const MODE_XFER = 3;
+const MODE_VBLANK = 1;
+const MODE_HBLANK = 0;
+
+function get_lcds_mode(): number {
+  return (lcd_get_context().ly >> 8) & 0x3;
+}
+
+function set_lcds_mode(mode: number): void {
+  const lcd = lcd_get_context();
+  lcd.ly = (lcd.ly & 0xfc) | mode;
+}
+
 export function ppu_init(): void {
   ctx.current_frame = 0;
   ctx.line_ticks = 0;
@@ -124,20 +138,7 @@ export function ppu_init(): void {
   ctx.window_line = 0;
 
   lcd_init();
-}
-
-const MODE_OAM = 2;
-const MODE_XFER = 3;
-const MODE_VBLANK = 1;
-const MODE_HBLANK = 0;
-
-function get_lcds_mode(): number {
-  return (lcd_get_context().ly >> 8) & 0x3;
-}
-
-function set_lcds_mode(mode: number): void {
-  const lcd = lcd_get_context();
-  lcd.ly = (lcd.ly & 0xfc) | mode;
+  set_lcds_mode(MODE_OAM);
 }
 
 function ppu_mode_oam(): void {
