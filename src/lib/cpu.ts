@@ -1,10 +1,3 @@
-// const Flags = {
-//   ZERO: 0b10000000,
-//   ADD_SUBTRACT: 0b0100_0000,
-//   HALF_CARRY: 0b00100000,
-//   CARRY: 0b00010000,
-// } as const;
-
 import { bus_read, bus_write } from "@/lib/bus";
 import { formatter, NO_IMPL } from "@/lib/common";
 import { fetch_data } from "@/lib/cpu_fetch";
@@ -15,6 +8,8 @@ import {
   instruction_by_opcode,
   instruction_name,
 } from "@/lib/instructions";
+import { timer_get_context } from "@/lib/timer";
+import { dbg_update, dbg_print } from "@/lib/dbg";
 
 export type cpu_registers = {
   A: number;
@@ -73,6 +68,8 @@ const ctx: cpu_context = {
   int_flags: 0,
 };
 
+const CPU_DEBUG = false;
+
 export function cpu_init(): void {
   ctx.registers.PC = 0x100;
   ctx.registers.SP = 0xfffe;
@@ -87,6 +84,8 @@ export function cpu_init(): void {
   ctx.int_flags = 0;
   ctx.int_master_enabled = false;
   ctx.enabling_ime = false;
+
+  timer_get_context().div = 0xabcc;
 }
 
 export function fetch_instruction(): void {
@@ -98,7 +97,6 @@ export function execute(): void {
   const proc = instruction_get_processor(ctx.current_instruction.type);
 
   if (!proc) {
-    console.log(formatter("Unknown instruction type %02X\n", ctx.current_opcode));
     NO_IMPL();
   }
   proc(ctx);
@@ -111,41 +109,57 @@ export function cpu_step(): boolean {
     fetch_instruction();
     emulation_cycles(1);
     fetch_data(ctx);
-    if (
-      ctx.current_instruction === null ||
-      ctx.current_instruction === undefined
-    ) {
-      console.log(formatter("Unknown instruction  %02X\n", ctx.current_opcode));
+
+    if (CPU_DEBUG) {
+      const flags: string = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${ctx.registers.F & (1 << 6) ? "N" : "-"}${ctx.registers.F & (1 << 5) ? "H" : "-"}${ctx.registers.F & (1 << 4) ? "C" : "-"}`;
+
+      console.log(
+        formatter(
+          "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
+          emulation_get_context().ticks,
+          pc,
+          instruction_name(ctx.current_instruction.type),
+          ctx.current_opcode,
+          bus_read(pc + 1),
+          bus_read(pc + 2),
+          ctx.registers.A,
+          flags,
+          ctx.registers.B,
+          ctx.registers.C,
+          ctx.registers.D,
+          ctx.registers.E,
+          ctx.registers.H,
+          ctx.registers.L
+        )
+      );
+    }
+
+    if (ctx.current_instruction === null || ctx.current_instruction === undefined) {
+      console.log(formatter("Unknown Instruction! %02X\n", ctx.current_opcode));
       process.exit(-7);
     }
-    const flags: string = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
-      ctx.registers.F & (1 << 6) ? "N" : "-"
-    }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
-      ctx.registers.F & (1 << 4) ? "C" : "-"
-    }`;
 
-    console.log(
-      formatter(
-        "%08lX - %04X: %-7s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
-        emulation_get_context().ticks,
-        pc,
-        instruction_name(ctx.current_instruction.type),
-        ctx.current_opcode,
-        bus_read(pc + 1),
-        bus_read(pc + 2),
-        ctx.registers.A,
-        flags,
-        ctx.registers.B,
-        ctx.registers.C,
-        ctx.registers.D,
-        ctx.registers.E,
-        ctx.registers.H,
-        ctx.registers.L
-      )
-    );
+    dbg_update();
+    dbg_print();
 
     execute();
+  } else {
+    emulation_cycles(1);
+
+    if (ctx.int_flags) {
+      ctx.halted = false;
+    }
   }
+
+  if (ctx.int_master_enabled) {
+    cpu_handle_interrupts();
+    ctx.enabling_ime = false;
+  }
+
+  if (ctx.enabling_ime) {
+    ctx.int_master_enabled = true;
+  }
+
   return true;
 }
 
@@ -204,14 +218,9 @@ function int_check(address: number, it: number): boolean {
 
 export function cpu_handle_interrupts(): void {
   if (int_check(0x40, INT_VBLANK)) {
-    // VBlank
   } else if (int_check(0x48, INT_LCD_STAT)) {
-    // LCD STAT
   } else if (int_check(0x50, INT_TIMER)) {
-    // Timer
   } else if (int_check(0x58, INT_SERIAL)) {
-    // Serial
   } else if (int_check(0x60, INT_JOYPAD)) {
-    // Joypad
   }
 }
