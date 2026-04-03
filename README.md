@@ -5,16 +5,21 @@ TODO:better name and readme
 ```sh
 #test roms
 npx tsx ./src/lib/main.ts ./roms/tetris_world.gb
+
+pnpx tsx ./src/lib/main.ts ./roms/tetris_world.gb
 ```
 
 ### TODO
 
 - [x] load roms
 - [ ] cpu
+  - [ ] instructions
+  - [ ] registers
 - [ ] ppu
 - [ ] bus
 - [ ] timer
 - [ ] emulation
+- [ ] switch to Uint8Array
 
 References:
 https://gbdev.io/pandocs/

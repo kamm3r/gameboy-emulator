@@ -2,7 +2,7 @@ import { bus_read } from "@/lib/bus";
 import { formatter } from "@/lib/common";
 import { type cpu_context } from "@/lib/cpu";
 import { cpu_read_register, cpu_set_register } from "@/lib/cpu_util";
-import { emulation_cycles } from "@/lib/emulation";
+import { emulation_cycles } from "@/lib/emu";
 
 export function fetch_data(ctx: cpu_context): void {
   ctx.memory_destination = 0;
@@ -19,7 +19,7 @@ export function fetch_data(ctx: cpu_context): void {
       ctx.fetched_data = cpu_read_register(ctx, ctx.current_instruction.reg_1!);
       return;
     case "AM_R_R":
-      ctx.fetched_data = cpu_read_register(ctx, ctx.current_instruction.reg_2);
+      ctx.fetched_data = cpu_read_register(ctx, ctx.current_instruction.reg_2!);
       return;
     case "AM_R_D8":
       ctx.fetched_data = bus_read(ctx.registers.PC);
@@ -39,11 +39,11 @@ export function fetch_data(ctx: cpu_context): void {
       return;
     case "AM_MR_R":
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_2)
+        cpu_read_register(ctx, ctx.current_instruction.reg_2!)
       );
       ctx.memory_destination = cpu_read_register(
         ctx,
-        ctx.current_instruction.reg_1
+        ctx.current_instruction.reg_1!
       );
 
       if (ctx.current_instruction.reg_1 === "RT_C") {
@@ -52,7 +52,7 @@ export function fetch_data(ctx: cpu_context): void {
       return;
     case "AM_R_MR":
       {
-        let address = cpu_read_register(ctx, ctx.current_instruction.reg_2);
+        let address = cpu_read_register(ctx, ctx.current_instruction.reg_2!);
 
         if (ctx.current_instruction.reg_2 === "RT_C") {
           address |= 0xff00;
@@ -63,36 +63,36 @@ export function fetch_data(ctx: cpu_context): void {
       return;
     case "AM_R_HLI":
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_2)
+        cpu_read_register(ctx, ctx.current_instruction.reg_2!)
       );
       emulation_cycles(1);
       cpu_set_register(ctx, "RT_HL", cpu_read_register(ctx, "RT_HL") + 1);
       return;
     case "AM_R_HLD":
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_2)
+        cpu_read_register(ctx, ctx.current_instruction.reg_2!)
       );
       emulation_cycles(1);
       cpu_set_register(ctx, "RT_HL", cpu_read_register(ctx, "RT_HL") - 1);
       return;
     case "AM_HLI_R":
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_2)
+        cpu_read_register(ctx, ctx.current_instruction.reg_2!)
       );
       ctx.memory_destination = cpu_read_register(
         ctx,
-        ctx.current_instruction.reg_1
+        ctx.current_instruction.reg_1!
       );
       ctx.destination_is_memory = true;
       cpu_set_register(ctx, "RT_HL", cpu_read_register(ctx, "RT_HL") + 1);
       return;
-    case "AM_HLI_R":
+    case "AM_HLD_R":
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_2)
+        cpu_read_register(ctx, ctx.current_instruction.reg_2!)
       );
       ctx.memory_destination = cpu_read_register(
         ctx,
-        ctx.current_instruction.reg_1
+        ctx.current_instruction.reg_1!
       );
       ctx.destination_is_memory = true;
       cpu_set_register(ctx, "RT_HL", cpu_read_register(ctx, "RT_HL") - 1);
@@ -133,7 +133,7 @@ export function fetch_data(ctx: cpu_context): void {
         ctx.registers.PC += 2;
         ctx.fetched_data = cpu_read_register(
           ctx,
-          ctx.current_instruction.reg_2
+          ctx.current_instruction.reg_2!
         );
       }
       return;
@@ -144,18 +144,18 @@ export function fetch_data(ctx: cpu_context): void {
       ctx.registers.PC++;
       ctx.memory_destination = cpu_read_register(
         ctx,
-        ctx.current_instruction.reg_1
+        ctx.current_instruction.reg_1!
       );
       ctx.destination_is_memory = true;
       return;
     case "AM_MR":
       ctx.memory_destination = cpu_read_register(
         ctx,
-        ctx.current_instruction.reg_1
+        ctx.current_instruction.reg_1!
       );
       ctx.destination_is_memory = true;
       ctx.fetched_data = bus_read(
-        cpu_read_register(ctx, ctx.current_instruction.reg_1)
+        cpu_read_register(ctx, ctx.current_instruction.reg_1!)
       );
       emulation_cycles(1);
       return;

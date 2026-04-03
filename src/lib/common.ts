@@ -29,8 +29,8 @@ export function formatter(
   ...args: (number | string)[]
 ): string {
   return formatString.replace(
-    /%(-?)(\d+)?(?:\.(\d+))?([sdX])/g,
-    (match, align, width, precision, type) => {
+    /%(-?)(\d+)?(l)?(\d*)([sdX])/g,
+    (match, align, width, long, precision, type) => {
       const value = args.shift(); // Get the next argument
 
       if (value === undefined) {

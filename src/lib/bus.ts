@@ -1,74 +1,60 @@
-import { cart_read, cart_write } from "@/lib/cartridge";
-import { formatter, NO_IMPL } from "@/lib/common";
+import { cart_read, cart_write } from "@/lib/cart";
 import { cpu_ie_register, cpu_set_ie_register } from "@/lib/cpu";
 import { hram_read, hram_write, wram_read, wram_write } from "@/lib/ram";
+import { ppu_vram_read, ppu_vram_write, ppu_oam_read, ppu_oam_write } from "@/lib/ppu";
+import { io_read, io_write } from "@/lib/io";
+import { dma_transferring } from "@/lib/dma";
 
 export function bus_read(address: number): number {
   if (address < 0x8000) {
-    // ROM Data
     return cart_read(address);
   } else if (address < 0xa000) {
-    // Char/Map Data
-    console.log(formatter("UNSUPPORTED BUS READ (%04X)\n", address));
-    NO_IMPL();
+    return ppu_vram_read(address);
   } else if (address < 0xc000) {
-    // Cartridge RAM
     return cart_read(address);
   } else if (address < 0xe000) {
-    // WRAM (Working RAM)
     return wram_read(address);
   } else if (address < 0xfe00) {
-    // reserved echo RAM
     return 0;
   } else if (address < 0xfea0) {
-    //OAM
-    console.log(formatter("UNSUPPORTED BUS READ (%04X)\n", address));
-    NO_IMPL();
+    if (dma_transferring()) {
+      return 0xff;
+    }
+    return ppu_oam_read(address);
   } else if (address < 0xff00) {
-    // reserved unusable
     return 0;
   } else if (address < 0xff80) {
-    // IO Registers
-    console.log(formatter("UNSUPPORTED BUS READ (%04X)\n", address));
-    NO_IMPL();
+    return io_read(address);
   } else if (address === 0xffff) {
-    // CPU ENABLE REGISTER
     return cpu_ie_register();
   }
+
   return hram_read(address);
 }
 
 export function bus_write(address: number, value: number): void {
   if (address < 0x8000) {
     cart_write(address, value);
-    return;
   } else if (address < 0xa000) {
-    // Char/Map Data
-    console.log(formatter("UNSUPPORTED BUS WRITE (%04X)\n", address));
-    NO_IMPL();
+    ppu_vram_write(address, value);
   } else if (address < 0xc000) {
-    // Cartridge RAM
     cart_write(address, value);
   } else if (address < 0xe000) {
-    // WRAM (Working RAM)
     wram_write(address, value);
   } else if (address < 0xfe00) {
-    // reserved echo RAM
+    // reserved echo ram
   } else if (address < 0xfea0) {
-    //OAM
-    console.log(formatter("UNSUPPORTED BUS WRITE (%04X)\n", address));
-    NO_IMPL();
+    if (dma_transferring()) {
+      return;
+    }
+    ppu_oam_write(address, value);
   } else if (address < 0xff00) {
-    // reserved unusable
+    // unusable reserved
   } else if (address < 0xff80) {
-    // IO Registers
-    console.log(formatter("UNSUPPORTED BUS WRITE (%04X)\n", address));
-    NO_IMPL();
+    io_write(address, value);
   } else if (address === 0xffff) {
-    // CPU ENABLE REGISTER
     cpu_set_ie_register(value);
   } else {
-    // HRAM
     hram_write(address, value);
   }
 }
@@ -76,7 +62,6 @@ export function bus_write(address: number, value: number): void {
 export function bus_read16(address: number): number {
   const low = bus_read(address);
   const high = bus_read(address + 1);
-
   return low | (high << 8);
 }
 

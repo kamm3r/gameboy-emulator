@@ -12,7 +12,7 @@ const ctx: ram_context = {
 
 export function wram_read(address: number): number {
   address -= 0xc000;
-  if (address < 0x2000) {
+  if (address < 0 || address < 0x2000) {
     console.log(formatter("INVALID WRAM ADDRESS %08X\n", address + 0xc000));
     process.exit(-1);
   }

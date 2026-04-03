@@ -1,4 +1,4 @@
-import { cpu_registers, type cpu_context } from "@/lib/cpu";
+import { type cpu_context } from "@/lib/cpu";
 import { type RegType } from "@/lib/instructions";
 
 export function reverse(value: number): number {
@@ -24,17 +24,17 @@ export function cpu_read_register(ctx: cpu_context, reg: RegType): number {
     case "RT_L":
       return ctx.registers.L;
     case "RT_AF":
-      return reverse((ctx.registers.A << 8) | ctx.registers.F);
+      return (ctx.registers.A << 8) | ctx.registers.F;
     case "RT_BC":
-      return reverse((ctx.registers.B << 8) | ctx.registers.C);
+      return (ctx.registers.B << 8) | ctx.registers.C;
     case "RT_DE":
-      return reverse((ctx.registers.D << 8) | ctx.registers.E);
+      return (ctx.registers.D << 8) | ctx.registers.E;
     case "RT_HL":
-      return reverse((ctx.registers.H << 8) | ctx.registers.L);
+      return (ctx.registers.H << 8) | ctx.registers.L;
     case "RT_PC":
-      return ctx.registers.SP;
-    case "RT_SP":
       return ctx.registers.PC;
+    case "RT_SP":
+      return ctx.registers.SP;
     default:
       return 0;
   }
@@ -71,20 +71,20 @@ export function cpu_set_register(
       ctx.registers.L = value & 0xff;
       break;
     case "RT_AF":
-      ctx.registers.A = (reverse(value) >> 8) & 0xff;
-      ctx.registers.F = reverse(value) & 0xff;
+      ctx.registers.A = (value >> 8) & 0xff;
+      ctx.registers.F = value & 0xf0;
       break;
     case "RT_BC":
-      ctx.registers.B = (reverse(value) >> 8) & 0xff;
-      ctx.registers.C = reverse(value) & 0xff;
+      ctx.registers.B = (value >> 8) & 0xff;
+      ctx.registers.C = value & 0xff;
       break;
     case "RT_DE":
-      ctx.registers.D = (reverse(value) >> 8) & 0xff;
-      ctx.registers.E = reverse(value) & 0xff;
+       ctx.registers.D = (value >> 8) & 0xff;
+      ctx.registers.E = value & 0xff;
       break;
     case "RT_HL":
-      ctx.registers.H = (reverse(value) >> 8) & 0xff;
-      ctx.registers.L = reverse(value) & 0xff;
+      ctx.registers.H = (value >> 8) & 0xff;
+      ctx.registers.L = value & 0xff;
       break;
     case "RT_PC":
       ctx.registers.PC = value;

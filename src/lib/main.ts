@@ -1,4 +1,4 @@
-import { emulation_run } from "./emulation";
+import { emulation_run } from "./emu";
 
 function main(argc: number, argv: string[]): number {
   return emulation_run(argc, argv);
