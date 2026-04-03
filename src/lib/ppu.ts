@@ -1,8 +1,29 @@
-import { lcd_get_context, lcd_init } from "./lcd";
+import { lcd_get_context, lcd_init, lcd_context } from "./lcd";
+import { bus_read, bus_write } from "./bus";
 import { BETWEEN } from "./common";
 
 const XRES = 160;
 const YRES = 144;
+
+export type fifo_entry = {
+  value: number;
+  next: fifo_entry | null;
+};
+
+export type oam_line_entry = {
+  entry: oam_entry;
+  next: oam_line_entry | null;
+};
+
+export type fetched_sprite = {
+  x: number;
+  y: number;
+  tile: number;
+  f_x_flip: number;
+  f_y_flip: number;
+  f_pn: number;
+  f_bgp: number;
+};
 
 export type oam_entry = {
   y: number;
@@ -24,11 +45,19 @@ export type ppu_context = {
     fifo_x: number;
     pixel_fifo: {
       size: number;
+      head: fifo_entry | null;
+      tail: fifo_entry | null;
     };
     cur_fetch_state: number;
+    map_y: number;
+    map_x: number;
+    tile_y: number;
+    bgw_fetch_data: number[];
+    fetch_entry_data: number[];
   };
-  line_sprites: number;
+  line_sprites: oam_line_entry | null;
   fetched_entry_count: number;
+  fetched_entries: fetched_sprite[];
   window_line: number;
 };
 
@@ -45,11 +74,19 @@ const ctx: ppu_context = {
     fifo_x: 0,
     pixel_fifo: {
       size: 0,
+      head: null,
+      tail: null,
     },
     cur_fetch_state: 0,
+    map_y: 0,
+    map_x: 0,
+    tile_y: 0,
+    bgw_fetch_data: [0, 0, 0],
+    fetch_entry_data: new Array(16).fill(0),
   },
-  line_sprites: 0,
+  line_sprites: null,
   fetched_entry_count: 0,
+  fetched_entries: [],
   window_line: 0,
 };
 
@@ -66,10 +103,18 @@ export function ppu_init(): void {
   ctx.pfc.pushed_x = 0;
   ctx.pfc.fetch_x = 0;
   ctx.pfc.pixel_fifo.size = 0;
+  ctx.pfc.pixel_fifo.head = null;
+  ctx.pfc.pixel_fifo.tail = null;
   ctx.pfc.cur_fetch_state = 0;
+  ctx.pfc.map_y = 0;
+  ctx.pfc.map_x = 0;
+  ctx.pfc.tile_y = 0;
+  ctx.pfc.bgw_fetch_data = [0, 0, 0];
+  ctx.pfc.fetch_entry_data = new Array(16).fill(0);
 
-  ctx.line_sprites = 0;
+  ctx.line_sprites = null;
   ctx.fetched_entry_count = 0;
+  ctx.fetched_entries = [];
   ctx.window_line = 0;
 
   lcd_init();
