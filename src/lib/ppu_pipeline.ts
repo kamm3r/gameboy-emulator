@@ -71,11 +71,8 @@ export function pixel_fifo_pop(): number {
   ppu.pfc.pixel_fifo.head = popped.next;
   ppu.pfc.pixel_fifo.size--;
 
-  if (!popped.next) {
-    ppu.pfc.pixel_fifo.tail = null;
-  }
-
-  return popped.value;
+  const val = popped.value;
+  return val;
 }
 
 export function fetch_sprite_pixels(bit: number, color: number, bg_color: number): number {
@@ -96,14 +93,14 @@ export function fetch_sprite_pixels(bit: number, color: number, bg_color: number
       continue;
     }
 
-    let b = 7 - offset;
+    bit = 7 - offset;
 
     if (sprite.f_x_flip) {
-      b = offset;
+      bit = offset;
     }
 
-    const hi = !!(ppu.pfc.fetch_entry_data[i * 2] & (1 << b)) ? 1 : 0;
-    const lo = (!!(ppu.pfc.fetch_entry_data[(i * 2) + 1] & (1 << b)) ? 1 : 0) << 1;
+    const hi = !!(ppu.pfc.fetch_entry_data[i * 2] & (1 << bit)) ? 1 : 0;
+    const lo = (!!(ppu.pfc.fetch_entry_data[(i * 2) + 1] & (1 << bit)) ? 1 : 0) << 1;
 
     const bg_priority = sprite.f_bgp;
 
@@ -327,10 +324,9 @@ export function pipeline_process(): void {
 export function pipeline_fifo_reset(): void {
   const ppu = ppu_get_context();
 
-  while (ppu.pfc.pixel_fifo.size > 0) {
+  while (ppu.pfc.pixel_fifo.size) {
     pixel_fifo_pop();
   }
 
   ppu.pfc.pixel_fifo.head = null;
-  ppu.pfc.pixel_fifo.tail = null;
 }
