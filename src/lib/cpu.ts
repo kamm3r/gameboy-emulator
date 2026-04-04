@@ -1,15 +1,16 @@
-import { bus_read, bus_write } from "@/lib/bus";
-import { formatter, NO_IMPL } from "@/lib/common";
+import { bus_read } from "@/lib/bus";
+import { formatter } from "@/lib/common";
 import { fetch_data } from "@/lib/cpu_fetch";
 import { instruction_get_processor } from "@/lib/cpu_proc";
-import { emulation_cycles, emulation_get_context } from "@/lib/emu";
+import { cpu_handle_interrupts } from "@/lib/interrupts";
 import {
-  instruction,
+  type instruction,
   instruction_by_opcode,
   instruction_name,
 } from "@/lib/instructions";
 import { timer_get_context } from "@/lib/timer";
 import { dbg_update, dbg_print } from "@/lib/dbg";
+import { emu_cycles, emu_get_context } from "@/lib/emu";
 
 export type cpu_registers = {
   A: number;
@@ -31,7 +32,7 @@ export type cpu_context = {
   memory_destination: number;
   destination_is_memory: boolean;
   current_opcode: number;
-  current_instruction: instruction;
+  current_instruction: instruction | null;
 
   halted: boolean;
   stepping: boolean;
@@ -59,7 +60,7 @@ const ctx: cpu_context = {
   memory_destination: 0,
   destination_is_memory: false,
   current_opcode: 0,
-  current_instruction: { type: "IN_NONE" as const, mode: "AM_IMP" as const },
+  current_instruction: null,
   halted: false,
   stepping: false,
   int_master_enabled: false,
@@ -71,15 +72,32 @@ const ctx: cpu_context = {
 const CPU_DEBUG = false;
 
 export function cpu_init(): void {
-  ctx.registers.PC = 0x100;
+  ctx.registers.PC = 0x0100;
   ctx.registers.SP = 0xfffe;
+
+  // Matches C:
+  // AF = 0xB001 -> A=0x01, F=0xB0 on little-endian layout
+  // BC = 0x1300 -> B=0x00, C=0x13
+  // DE = 0xD800 -> D=0x00, E=0xD8
+  // HL = 0x4D01 -> H=0x01, L=0x4D
   ctx.registers.A = 0x01;
+  ctx.registers.F = 0xb0;
   ctx.registers.B = 0x00;
   ctx.registers.C = 0x13;
   ctx.registers.D = 0x00;
   ctx.registers.E = 0xd8;
   ctx.registers.H = 0x01;
   ctx.registers.L = 0x4d;
+
+  ctx.fetched_data = 0;
+  ctx.memory_destination = 0;
+  ctx.destination_is_memory = false;
+  ctx.current_opcode = 0;
+  ctx.current_instruction = null;
+
+  ctx.halted = false;
+  ctx.stepping = false;
+
   ctx.ie_register = 0;
   ctx.int_flags = 0;
   ctx.int_master_enabled = false;
@@ -90,15 +108,34 @@ export function cpu_init(): void {
 
 export function fetch_instruction(): void {
   ctx.current_opcode = bus_read(ctx.registers.PC++);
-  ctx.current_instruction = instruction_by_opcode(ctx.current_opcode);
+  ctx.current_instruction = instruction_by_opcode(ctx.current_opcode) ?? null;
 }
 
 export function execute(): void {
+  if (!ctx.current_instruction) {
+    console.log(
+      `Unknown instruction ${ctx.current_opcode
+        .toString(16)
+        .padStart(2, "0")} at PC ${(ctx.registers.PC - 1)
+        .toString(16)
+        .padStart(4, "0")}`,
+    );
+    return;
+  }
+
   const proc = instruction_get_processor(ctx.current_instruction.type);
 
   if (!proc) {
-    NO_IMPL();
+    console.log(
+      `INVALID INSTRUCTION! ${ctx.current_opcode
+        .toString(16)
+        .padStart(2, "0")} at PC ${(ctx.registers.PC - 1)
+        .toString(16)
+        .padStart(4, "0")}`,
+    );
+    return;
   }
+
   proc(ctx);
 }
 
@@ -107,16 +144,28 @@ export function cpu_step(): boolean {
     const pc = ctx.registers.PC;
 
     fetch_instruction();
-    emulation_cycles(1);
+    emu_cycles(1);
+
+    if (!ctx.current_instruction) {
+      console.log(
+        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
+      );
+      return false;
+    }
+
     fetch_data(ctx);
 
     if (CPU_DEBUG) {
-      const flags: string = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${ctx.registers.F & (1 << 6) ? "N" : "-"}${ctx.registers.F & (1 << 5) ? "H" : "-"}${ctx.registers.F & (1 << 4) ? "C" : "-"}`;
+      const flags = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
+        ctx.registers.F & (1 << 6) ? "N" : "-"
+      }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
+        ctx.registers.F & (1 << 4) ? "C" : "-"
+      }`;
 
       console.log(
         formatter(
           "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
-          emulation_get_context().ticks,
+          emu_get_context().ticks,
           pc,
           instruction_name(ctx.current_instruction.type),
           ctx.current_opcode,
@@ -129,14 +178,9 @@ export function cpu_step(): boolean {
           ctx.registers.D,
           ctx.registers.E,
           ctx.registers.H,
-          ctx.registers.L
-        )
+          ctx.registers.L,
+        ),
       );
-    }
-
-    if (ctx.current_instruction === null || ctx.current_instruction === undefined) {
-      console.log(formatter("Unknown Instruction! %02X\n", ctx.current_opcode));
-      process.exit(-7);
     }
 
     dbg_update();
@@ -144,7 +188,7 @@ export function cpu_step(): boolean {
 
     execute();
   } else {
-    emulation_cycles(1);
+    emu_cycles(1);
 
     if (ctx.int_flags) {
       ctx.halted = false;
@@ -168,10 +212,10 @@ export function cpu_ie_register(): number {
 }
 
 export function cpu_set_ie_register(value: number): void {
-  ctx.ie_register = value;
+  ctx.ie_register = value & 0xff;
 }
 
-export function cpu_get_register(): cpu_registers {
+export function cpu_get_registers(): cpu_registers {
   return ctx.registers;
 }
 
@@ -180,7 +224,7 @@ export function cpu_get_int_flags(): number {
 }
 
 export function cpu_set_int_flags(value: number): void {
-  ctx.int_flags = value;
+  ctx.int_flags = value & 0xff;
 }
 
 export function cpu_get_context(): cpu_context {
@@ -191,36 +235,11 @@ export function cpu_request_interrupt(interrupt: number): void {
   ctx.int_flags |= interrupt;
 }
 
-const INT_VBLANK = 0x01;
-const INT_LCD_STAT = 0x02;
-const INT_TIMER = 0x04;
-const INT_SERIAL = 0x08;
-const INT_JOYPAD = 0x10;
-
-function int_handle(address: number): void {
-  ctx.registers.SP--;
-  bus_write(ctx.registers.SP, (ctx.registers.PC >> 8) & 0xff);
-  ctx.registers.SP--;
-  bus_write(ctx.registers.SP, ctx.registers.PC & 0xff);
-  ctx.registers.PC = address;
-}
-
-function int_check(address: number, it: number): boolean {
-  if ((ctx.int_flags & it) && (ctx.ie_register & it)) {
-    int_handle(address);
-    ctx.int_flags &= ~it;
-    ctx.halted = false;
-    ctx.int_master_enabled = false;
-    return true;
-  }
-  return false;
-}
-
-export function cpu_handle_interrupts(): void {
-  if (int_check(0x40, INT_VBLANK)) {
-  } else if (int_check(0x48, INT_LCD_STAT)) {
-  } else if (int_check(0x50, INT_TIMER)) {
-  } else if (int_check(0x58, INT_SERIAL)) {
-  } else if (int_check(0x60, INT_JOYPAD)) {
-  }
-}
+export {
+  INT_VBLANK,
+  INT_LCD_STAT,
+  INT_TIMER,
+  INT_SERIAL,
+  INT_JOYPAD,
+  cpu_handle_interrupts,
+} from "@/lib/interrupts";

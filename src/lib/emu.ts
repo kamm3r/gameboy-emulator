@@ -1,41 +1,30 @@
-import { cpu_step, cpu_init, cpu_handle_interrupts, cpu_get_context } from "@/lib/cpu";
+import { cpu_step, cpu_init } from "@/lib/cpu";
 import { cart_load } from "./cart";
 import { delay } from "@/lib/common";
 import { timer_init, timer_tick } from "@/lib/timer";
-import { ppu_init, ppu_tick } from "@/lib/ppu";
+import { ppu_init, ppu_tick, ppu_get_context } from "@/lib/ppu";
 import { dma_tick } from "@/lib/dma";
+import { ui_init, ui_handle_events, ui_update } from "@/lib/ui";
 
-type emulator_context = {
+type EmulatorContext = {
   paused: boolean;
   running: boolean;
   ticks: number;
   die: boolean;
 };
 
-const ctx: emulator_context = {
+const ctx: EmulatorContext = {
   paused: false,
   running: false,
   ticks: 0,
   die: false,
 };
 
-export function emulation_get_context(): emulator_context {
+export function emu_get_context(): EmulatorContext {
   return ctx;
 }
 
-export function emulation_run(argc: number, argv: string[]): number {
-  if (argc < 2) {
-    console.log("Usage: emu <rom_file>\n");
-    return -1;
-  }
-
-  if (!cart_load(argv[2])) {
-    console.log(`Failed to load ROM file: \n ${argv[2]}`);
-    return -2;
-  }
-
-  console.log("Cart loaded...\n");
-
+export async function cpu_run(): Promise<void> {
   timer_init();
   cpu_init();
   ppu_init();
@@ -44,23 +33,61 @@ export function emulation_run(argc: number, argv: string[]): number {
   ctx.paused = false;
   ctx.ticks = 0;
 
-  while (ctx.running) {
+  while (ctx.running && !ctx.die) {
     if (ctx.paused) {
-      delay(10);
+      await delay(10);
       continue;
     }
-    if (!cpu_step()) {
-      console.log("CPU Stopped\n");
-      return -3;
-    }
 
-    ctx.ticks++;
+    if (!cpu_step()) {
+      console.log("CPU stopped");
+      ctx.running = false;
+      break;
+    }
   }
+}
+
+export async function emulation_run(
+  argc: number,
+  argv: string[],
+): Promise<number> {
+  if (argc < 2) {
+    console.log("Usage: emu <rom_file>");
+    return -1;
+  }
+
+  const romPath = argv[1];
+
+  if (!cart_load(romPath)) {
+    console.log(`Failed to load ROM file: ${romPath}`);
+    return -2;
+  }
+
+  console.log("Cart loaded...");
+
+  ui_init();
+
+  void cpu_run();
+
+  let prevFrame = 0;
+
+  while (!ctx.die) {
+    await delay(1);
+    ui_handle_events();
+
+    const currentFrame = ppu_get_context().current_frame;
+    if (prevFrame !== currentFrame) {
+      ui_update();
+      prevFrame = currentFrame;
+    }
+  }
+
+  ctx.running = false;
   return 0;
 }
 
-export function emulation_cycles(cpu_cycles: number): void {
-  for (let i = 0; i < cpu_cycles; i++) {
+export function emu_cycles(cpuCycles: number): void {
+  for (let i = 0; i < cpuCycles; i++) {
     for (let n = 0; n < 4; n++) {
       ctx.ticks++;
       timer_tick();
@@ -68,17 +95,5 @@ export function emulation_cycles(cpu_cycles: number): void {
     }
 
     dma_tick();
-  }
-}
-
-export function handle_interrupts(): void {
-  const cpu = cpu_get_context();
-  if (cpu.int_master_enabled) {
-    cpu_handle_interrupts();
-    cpu.enabling_ime = false;
-  }
-
-  if (cpu.enabling_ime) {
-    cpu.int_master_enabled = true;
   }
 }

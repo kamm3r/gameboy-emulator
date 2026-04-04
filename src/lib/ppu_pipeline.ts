@@ -1,4 +1,4 @@
-import { ppu_get_context, fetched_sprite, oam_line_entry } from "./ppu";
+import { ppu_get_context, fetched_sprite } from "./ppu";
 import { lcd_get_context } from "./lcd";
 import { bus_read } from "./bus";
 
@@ -64,7 +64,7 @@ export function pixel_fifo_pop(): number {
   const ppu = ppu_get_context();
   if (ppu.pfc.pixel_fifo.size <= 0) {
     console.error("ERR IN PIXEL FIFO!\n");
-    process.exit(-8);
+    return 0;
   }
 
   const popped = ppu.pfc.pixel_fifo.head!;
@@ -227,16 +227,16 @@ export function pipeline_load_window_tile(): void {
 
 export function pipeline_fetch(): void {
   const ppu = ppu_get_context();
-  const lcd = lcd_get_context();
 
   switch (ppu.pfc.cur_fetch_state) {
     case FS_TILE: {
       ppu.fetched_entry_count = 0;
 
       if (LCDC_BGW_ENABLE()) {
-        ppu.pfc.bgw_fetch_data[0] = bus_read(LCDC_BG_MAP_AREA() +
+        const mapAddr = LCDC_BG_MAP_AREA() +
           Math.floor(ppu.pfc.map_x / 8) +
-          (Math.floor(ppu.pfc.map_y / 8) * 32));
+          (Math.floor(ppu.pfc.map_y / 8) * 32);
+        ppu.pfc.bgw_fetch_data[0] = bus_read(mapAddr);
 
         if (LCDC_BGW_DATA_AREA() === 0x8800) {
           ppu.pfc.bgw_fetch_data[0] += 128;
@@ -293,12 +293,17 @@ export function pipeline_fetch(): void {
 export function pipeline_push_pixel(): void {
   const ppu = ppu_get_context();
   const lcd = lcd_get_context();
+  const ly = lcd.ly & 0xff;
 
-  if (ppu.pfc.pixel_fifo.size > 8) {
-    const pixel_data = pixel_fifo_pop();
+  if (ppu.pfc.pixel_fifo.size > 0) {
+    let pixel_data = pixel_fifo_pop();
+
+    if (!LCDC_BGW_ENABLE() && !LCDC_OBJ_ENABLE()) {
+      pixel_data = 0;
+    }
 
     if (ppu.pfc.line_x >= (lcd.scroll_x % 8)) {
-      ppu.video_buffer[ppu.pfc.pushed_x + (lcd.ly * XRES)] = pixel_data;
+      ppu.video_buffer[ppu.pfc.pushed_x + (ly * XRES)] = pixel_data;
       ppu.pfc.pushed_x++;
     }
 

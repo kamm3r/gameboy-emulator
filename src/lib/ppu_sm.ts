@@ -1,25 +1,28 @@
-import { lcd_get_context, lcd_context } from "./lcd";
-import { ppu_get_context, ppu_context, oam_entry, oam_line_entry, fetched_sprite, fifo_entry } from "./ppu";
+import { lcd_get_context } from "./lcd";
+import { ppu_get_context, oam_line_entry} from "./ppu";
 import { cpu_request_interrupt } from "./cpu";
+import { cart_need_save, cart_battery_save } from "./cart";
 
 export const XRES = 160;
 export const YRES = 144;
-const LINES_PER_FRAME = 154;
-const TICKS_PER_LINE = 456;
+export const LINES_PER_FRAME = 154;
+export const TICKS_PER_LINE = 456;
 
 const IT_VBLANK = 0;
 const IT_LCD_STAT = 1;
-const IT_TIMER = 2;
+// const IT_TIMER = 2;
 
 const SS_HBLANK = 0;
 const SS_VBLANK = 1;
 const SS_LYC = 2;
-const SS_OAM = 3;
+// const SS_OAM = 3;
 
 const MODE_HBLANK = 0;
 const MODE_VBLANK = 1;
 const MODE_OAM = 2;
 const MODE_XFER = 3;
+
+const FS_TILE = 0;
 
 function LCDS_LYC_SET(value: number): void {
   const lcd = lcd_get_context();
@@ -86,6 +89,7 @@ export function load_line_sprites(): void {
   const sprite_height = (lcd.lcdc & 0x04) ? 16 : 8;
 
   ppu.line_entry_array = [];
+  ppu.line_sprite_count = 0;
 
   for (let i = 0; i < 40; i++) {
     const e = ppu.oam_ram[i];
@@ -104,8 +108,7 @@ export function load_line_sprites(): void {
         next: null,
       };
 
-      ppu.line_entry_array.push(entry);
-      ppu.line_sprite_count++;
+      ppu.line_entry_array[ppu.line_sprite_count++] = entry;
 
       if (!ppu.line_sprites || ppu.line_sprites.entry.x > e.x) {
         entry.next = ppu.line_sprites;
@@ -141,7 +144,7 @@ export function ppu_mode_oam(): void {
   if (ppu.line_ticks >= 80) {
     LCDS_MODE_SET(MODE_XFER);
 
-    ppu.pfc.cur_fetch_state = 0;
+    ppu.pfc.cur_fetch_state = FS_TILE;
     ppu.pfc.line_x = 0;
     ppu.pfc.fetch_x = 0;
     ppu.pfc.pushed_x = 0;
@@ -151,7 +154,6 @@ export function ppu_mode_oam(): void {
   if (ppu.line_ticks === 1) {
     ppu.line_sprites = null;
     ppu.line_sprite_count = 0;
-    ppu.line_entry_array = [];
 
     load_line_sprites();
   }
@@ -189,10 +191,19 @@ export function ppu_mode_vblank(): void {
   }
 }
 
-let target_frame_time = Math.floor(1000 / 60);
+const target_frame_time = Math.floor(1000 / 60);
 let prev_frame_time = 0;
 let start_timer = 0;
 let frame_count = 0;
+
+function get_ticks(): number {
+  return Date.now();
+}
+
+function delay(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {}
+}
 
 export function ppu_mode_hblank(): void {
   const ppu = ppu_get_context();
@@ -211,8 +222,27 @@ export function ppu_mode_hblank(): void {
 
       ppu.current_frame++;
 
+      const end = get_ticks();
+      const frame_time = end - prev_frame_time;
+
+      if (frame_time < target_frame_time) {
+        delay(target_frame_time - frame_time);
+      }
+
+      if (end - start_timer >= 1000) {
+        const fps = frame_count;
+        start_timer = end;
+        frame_count = 0;
+
+        console.log(`FPS: ${fps}`);
+
+        if (cart_need_save()) {
+          cart_battery_save();
+        }
+      }
+
       frame_count++;
-      prev_frame_time = 0;
+      prev_frame_time = get_ticks();
     } else {
       LCDS_MODE_SET(MODE_OAM);
     }

@@ -225,13 +225,9 @@ for (let i = 0; i < 8; i++) {
   // CP
   instructions[0xb8 + i] = { type: in_type.IN_CP, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
 }
-instructions[0xff] = {
-  type: in_type.IN_RST,
-  mode: addr_mode.AM_IMP,
-  param: 0x38,
-};
-
-// Fill in missing instructions
+// 0xC0-0xCF
+instructions[0xc0] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_NZ };
+instructions[0xc1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_BC };
 instructions[0xc2] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_NZ };
 instructions[0xc3] = { type: in_type.IN_JP, mode: addr_mode.AM_D16 };
 instructions[0xc4] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_NZ };
@@ -239,6 +235,7 @@ instructions[0xc5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_t
 instructions[0xc6] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xc7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x00 };
 instructions[0xc8] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_Z };
+instructions[0xc9] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP };
 instructions[0xca] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_Z };
 instructions[0xcb] = { type: in_type.IN_CB, mode: addr_mode.AM_D8 };
 instructions[0xcc] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_Z };
@@ -246,9 +243,11 @@ instructions[0xcd] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16 };
 instructions[0xce] = { type: in_type.IN_ADC, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xcf] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x08 };
 
+// 0xD0-0xDF
 instructions[0xd0] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_NC };
 instructions[0xd1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
 instructions[0xd2] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_NC };
+instructions[0xd3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xd4] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_NC };
 instructions[0xd5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
 instructions[0xd6] = { type: in_type.IN_SUB, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
@@ -256,31 +255,47 @@ instructions[0xd7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x10
 instructions[0xd8] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_C };
 instructions[0xd9] = { type: in_type.IN_RETI, mode: addr_mode.AM_IMP };
 instructions[0xda] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_C };
+instructions[0xdb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xdc] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_C };
+instructions[0xdd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xde] = { type: in_type.IN_SBC, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xdf] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x18 };
 
+// 0xE0-0xEF
 instructions[0xe0] = { type: in_type.IN_LDH, mode: addr_mode.AM_A8_R, reg_2: reg_type.RT_A };
 instructions[0xe1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
 instructions[0xe2] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_R, reg_1: reg_type.RT_C, reg_2: reg_type.RT_A };
+instructions[0xe3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
+instructions[0xe4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xe5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
 instructions[0xe6] = { type: in_type.IN_AND, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xe7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x20 };
 instructions[0xe8] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_SP };
 instructions[0xe9] = { type: in_type.IN_JP, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
 instructions[0xea] = { type: in_type.IN_LD, mode: addr_mode.AM_A16_R, reg_2: reg_type.RT_A };
+instructions[0xeb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
+instructions[0xec] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
+instructions[0xed] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xee] = { type: in_type.IN_XOR, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xef] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x28 };
 
+// 0xF0-0xFF
 instructions[0xf0] = { type: in_type.IN_LDH, mode: addr_mode.AM_R_A8, reg_1: reg_type.RT_A };
 instructions[0xf1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_AF };
 instructions[0xf2] = { type: in_type.IN_LD, mode: addr_mode.AM_R_MR, reg_1: reg_type.RT_A, reg_2: reg_type.RT_C };
+instructions[0xf3] = { type: in_type.IN_DI, mode: addr_mode.AM_IMP };
+instructions[0xf4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
 instructions[0xf5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_AF };
 instructions[0xf6] = { type: in_type.IN_OR, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
 instructions[0xf7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x30 };
 instructions[0xf8] = { type: in_type.IN_LD, mode: addr_mode.AM_HL_SPR, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_SP };
 instructions[0xf9] = { type: in_type.IN_LD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_SP, reg_2: reg_type.RT_HL };
 instructions[0xfa] = { type: in_type.IN_LD, mode: addr_mode.AM_R_A16, reg_1: reg_type.RT_A };
+instructions[0xfb] = { type: in_type.IN_EI, mode: addr_mode.AM_IMP };
+instructions[0xfc] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
+instructions[0xfd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
+instructions[0xfe] = { type: in_type.IN_CP, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
+instructions[0xff] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x38 };
 
 // const instructions: Record<number, instruction> = {
 //   0x00: { type: in_type.IN_NOP, mode: addr_mode.AM_IMP },
@@ -305,7 +320,6 @@ for (let i = 0; i < 8; i++) {
 }
 for (let i = 0; i < 64; i++) {
   if (cb_instructions[i + 64] === undefined) {
-    const bit = (i + 64) >> 3;
     cb_instructions[i + 64] = { type: in_type.IN_BIT, mode: addr_mode.AM_R };
   }
 }

@@ -1,6 +1,5 @@
-import { lcd_get_context, lcd_init, lcd_context } from "./lcd";
-import { bus_read, bus_write } from "./bus";
-import { BETWEEN } from "./common";
+import { lcd_get_context, lcd_init } from "./lcd";
+import { pipeline_process, pipeline_fifo_reset } from "./ppu_pipeline";
 
 const XRES = 160;
 const YRES = 144;
@@ -35,7 +34,7 @@ export type oam_entry = {
 export type ppu_context = {
   current_frame: number;
   line_ticks: number;
-  video_buffer: number[];
+  video_buffer: Uint8Array;
   vram: number[];
   oam_ram: oam_entry[];
   pfc: {
@@ -66,9 +65,9 @@ export type ppu_context = {
 const ctx: ppu_context = {
   current_frame: 0,
   line_ticks: 0,
-  video_buffer: new Array(YRES * XRES).fill(0),
+  video_buffer: new Uint8Array(YRES * XRES),
   vram: new Array(0x2000).fill(0),
-  oam_ram: new Array(40).fill({ y: 0, x: 0, tile: 0, attributes: 0 }),
+  oam_ram: Array.from({ length: 40 }, () => ({ y: 0, x: 0, tile: 0, attributes: 0 })),
   pfc: {
     line_x: 0,
     pushed_x: 0,
@@ -115,7 +114,7 @@ function set_lcds_mode(mode: number): void {
 export function ppu_init(): void {
   ctx.current_frame = 0;
   ctx.line_ticks = 0;
-  ctx.video_buffer = new Array(YRES * XRES).fill(0);
+  ctx.video_buffer = new Uint8Array(YRES * XRES);
 
   ctx.pfc.line_x = 0;
   ctx.pfc.pushed_x = 0;
@@ -143,6 +142,9 @@ export function ppu_init(): void {
 
 function ppu_mode_oam(): void {
   if (ctx.line_ticks >= 80) {
+    const lcd = lcd_get_context();
+    const ly = lcd.ly & 0xff;
+    console.log(`OAM done: ly=${ly}, lcdc=${lcd.lcdc.toString(16)}, about to switch to XFER`);
     set_lcds_mode(MODE_XFER);
     ctx.pfc.cur_fetch_state = 0;
     ctx.pfc.line_x = 0;
@@ -152,9 +154,29 @@ function ppu_mode_oam(): void {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ppu_mode_xfer(): void {
-  // Simplified - full implementation would have pixel fetching pipeline
+  if (ctx.line_ticks === 0) {
+    ctx.pfc.line_x = 0;
+    ctx.pfc.pushed_x = 0;
+    ctx.pfc.fetch_x = 0;
+    ctx.pfc.cur_fetch_state = 0;
+  }
+  
+  const lcd = lcd_get_context();
+  const ly = lcd.ly & 0xff;
+  
+  if (lcd.lcdc & 0x01) {
+    pipeline_process();
+  } else {
+    for (let x = 0; x < XRES; x++) {
+      ctx.video_buffer[ctx.pfc.pushed_x + (ly * XRES)] = 0;
+      ctx.pfc.pushed_x++;
+    }
+  }
+  
   if (ctx.pfc.pushed_x >= XRES) {
+    pipeline_fifo_reset();
     set_lcds_mode(MODE_HBLANK);
   }
 }
@@ -164,11 +186,13 @@ function ppu_mode_vblank(): void {
   
   if (ctx.line_ticks >= 456) {
     ctx.line_ticks = 0;
-    lcd.ly++;
+    const currentLy = lcd.ly & 0xFF;
+    const mode = lcd.ly & 0x300;
+    lcd.ly = mode | (currentLy + 1);
 
-    if (lcd.ly >= 154) {
+    if (currentLy + 1 >= 154) {
       set_lcds_mode(MODE_OAM);
-      lcd.ly = 0;
+      lcd.ly = (lcd.ly & 0x300) | 0;
       ctx.window_line = 0;
     }
   }
@@ -179,9 +203,11 @@ function ppu_mode_hblank(): void {
   
   if (ctx.line_ticks >= 456) {
     ctx.line_ticks = 0;
-    lcd.ly++;
+    const currentLy = lcd.ly & 0xFF;
+    const mode = lcd.ly & 0x300;
+    lcd.ly = mode | (currentLy + 1);
 
-    if (lcd.ly >= 144) {
+    if (currentLy + 1 >= 144) {
       set_lcds_mode(MODE_VBLANK);
       ctx.current_frame++;
     } else {
@@ -194,12 +220,30 @@ export function ppu_tick(): void {
   ctx.line_ticks++;
 
   const mode = get_lcds_mode();
+  const lcd = lcd_get_context();
+  const ly = lcd.ly & 0xff;
+  
+  if (mode === MODE_XFER && ctx.line_ticks === 1) {
+    console.log(`XFER mode start: ly=${ly}, pushed_x=${ctx.pfc.pushed_x}, fifo=${ctx.pfc.pixel_fifo.size}`);
+  }
+  
   switch (mode) {
     case MODE_OAM:
       ppu_mode_oam();
       break;
     case MODE_XFER:
-      ppu_mode_xfer();
+      if (lcd.lcdc & 0x01) {
+        pipeline_process();
+      } else {
+        if (ctx.pfc.pushed_x < XRES) {
+          ctx.video_buffer[ctx.pfc.pushed_x + (ly * XRES)] = 0;
+          ctx.pfc.pushed_x++;
+        }
+      }
+      if (ctx.pfc.pushed_x >= XRES) {
+        pipeline_fifo_reset();
+        set_lcds_mode(MODE_HBLANK);
+      }
       break;
     case MODE_VBLANK:
       ppu_mode_vblank();

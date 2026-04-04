@@ -15,28 +15,28 @@ export type lcd_context = {
   sp2_colors: number[];
 };
 
-const colors_default: number[] = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
+const colors_default: number[] = [0, 1, 2, 3];
 
 const ctx: lcd_context = {
   lcdc: 0x91,
   scroll_x: 0,
   scroll_y: 0,
-  ly: 0,
+  ly: 0x200,  // Bits 8-9 contain the mode (2 = OAM)
   ly_compare: 0,
   bg_palette: 0xfc,
   obj_palette: [0xff, 0xff],
   win_y: 0,
   win_x: 0,
-  bg_colors: [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000],
-  sp1_colors: [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000],
-  sp2_colors: [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000],
+  bg_colors: [0, 1, 2, 3],
+  sp1_colors: [0, 1, 2, 3],
+  sp2_colors: [0, 1, 2, 3],
 };
 
 export function lcd_init(): void {
   ctx.lcdc = 0x91;
   ctx.scroll_x = 0;
   ctx.scroll_y = 0;
-  ctx.ly = 0;
+  ctx.ly = 0x200;  // Mode 2 (OAM)
   ctx.ly_compare = 0;
   ctx.bg_palette = 0xfc;
   ctx.obj_palette[0] = 0xff;

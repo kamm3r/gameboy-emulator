@@ -15,12 +15,16 @@ export function io_read(address: number): number {
     return serial_data[0];
   }
 
-  if (address === 0xff02) {
-    return serial_data[1];
+  if (BETWEEN(address, 0xff02, 0xff03)) {
+    return serial_data[address - 0xff02];
   }
 
   if (BETWEEN(address, 0xff04, 0xff07)) {
     return timer_read(address);
+  }
+
+  if (BETWEEN(address, 0xff08, 0xff0f)) {
+    return 0;
   }
 
   if (address === 0xff0f) {
@@ -31,8 +35,12 @@ export function io_read(address: number): number {
     return 0;
   }
 
-  if (BETWEEN(address, 0xff40, 0xff4b)) {
+  if (BETWEEN(address, 0xff40, 0xff4f)) {
     return lcd_read(address);
+  }
+
+  if (BETWEEN(address, 0xff50, 0xff7f)) {
+    return 0;
   }
 
   console.log(`UNSUPPORTED bus_read(${address.toString(16)})\n`);
@@ -45,18 +53,17 @@ export function io_write(address: number, value: number): void {
     return;
   }
 
-  if (address === 0xff01) {
-    serial_data[0] = value;
-    return;
-  }
-
-  if (address === 0xff02) {
-    serial_data[1] = value;
+  if (BETWEEN(address, 0xff01, 0xff03)) {
+    serial_data[address - 0xff01] = value;
     return;
   }
 
   if (BETWEEN(address, 0xff04, 0xff07)) {
     timer_write(address, value);
+    return;
+  }
+
+  if (BETWEEN(address, 0xff08, 0xff0f)) {
     return;
   }
 
@@ -69,8 +76,12 @@ export function io_write(address: number, value: number): void {
     return;
   }
 
-  if (BETWEEN(address, 0xff40, 0xff4b)) {
+  if (BETWEEN(address, 0xff40, 0xff4f)) {
     lcd_write(address, value);
+    return;
+  }
+
+  if (BETWEEN(address, 0xff50, 0xff7f)) {
     return;
   }
 

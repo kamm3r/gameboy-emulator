@@ -1,9 +1,14 @@
+export const XRES = 160;
+export const YRES = 144;
+
+export const SCREEN_WIDTH = XRES;
+export const SCREEN_HEIGHT = YRES;
+
 export function BIT(a: number, n: number): number {
   return a & (1 << n) ? 1 : 0;
 }
 
 export function BIT_SET(a: number, n: number, on: number): number {
-  // return on ? (a |= 1 << n) : (a &= ~(1 << n));
   if (on) {
     return a | (1 << n);
   } else {
@@ -15,13 +20,12 @@ export function BETWEEN(a: number, b: number, c: number): boolean {
   return a >= b && a <= c;
 }
 
-export function delay(ms: number) {
+export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function NO_IMPL(): void {
-  console.error("NOT ?YET IMPLEMENTED\n");
-  process.exit(-5);
+  console.error("NOT YET IMPLEMENTED\n");
 }
 
 export function formatter(
@@ -31,36 +35,33 @@ export function formatter(
   return formatString.replace(
     /%(-?)(\d+)?(l)?(\d*)([sdX])/g,
     (match, align, width, long, precision, type) => {
-      const value = args.shift(); // Get the next argument
+      const value = args.shift();
 
       if (value === undefined) {
-        return match; // Return the original match if no argument is provided
+        return match;
       }
 
       if (type === "d") {
-        // Format as decimal
         return value.toString();
       } else if (type === "s") {
-        // Format as string
         const str = value.toString();
         if (align === "-") {
           return str.padEnd(width ? parseInt(width) : str.length, " ");
         }
         return str.padStart(width ? parseInt(width) : str.length, " ");
       } else if (type === "X") {
-        // Format as hexadecimal (uppercase)
         return value
-          .toString(16)
+          .toString()
           .toUpperCase()
           .padStart(width ? parseInt(width) : 0, "0");
       }
 
-      return match; // Return the original match if no formatting is applied
+      return match;
     }
   );
 }
 
-export function stringCopyLimit(source: string, maxLength: number) {
+export function stringCopyLimit(source: string, maxLength: number): string {
   return source.slice(0, maxLength);
 }
 
@@ -69,6 +70,7 @@ export class Flags {
   static readonly ADD_SUBTRACT = 0b01000000;
   static readonly HALF_CARRY = 0b00100000;
   static readonly CARRY = 0b00010000;
+
   value: number;
 
   constructor(initialValue: number = 0) {
