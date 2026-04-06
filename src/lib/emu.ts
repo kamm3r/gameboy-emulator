@@ -33,15 +33,15 @@ export async function cpu_run(): Promise<void> {
   ctx.paused = false;
   ctx.ticks = 0;
 
-  while (ctx.running && !ctx.die) {
+  while (ctx.running) {
     if (ctx.paused) {
       await delay(10);
+      console.log("paused");
       continue;
     }
 
     if (!cpu_step()) {
-      console.log("CPU stopped");
-      ctx.running = false;
+      console.log("CPU stopped\n");
       break;
     }
   }
@@ -52,11 +52,11 @@ export async function emulation_run(
   argv: string[],
 ): Promise<number> {
   if (argc < 2) {
-    console.log("Usage: emu <rom_file>");
+    console.log("Usage: emu <rom_file>\n");
     return -1;
   }
 
-  const romPath = argv[1];
+  const romPath = argv[2];
 
   if (!cart_load(romPath)) {
     console.log(`Failed to load ROM file: ${romPath}`);
@@ -78,11 +78,10 @@ export async function emulation_run(
     const currentFrame = ppu_get_context().current_frame;
     if (prevFrame !== currentFrame) {
       ui_update();
-      prevFrame = currentFrame;
     }
+    prevFrame = currentFrame;
   }
 
-  ctx.running = false;
   return 0;
 }
 

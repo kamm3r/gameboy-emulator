@@ -1,8 +1,8 @@
 import { emulation_run } from "./emu";
 
-function main(argc: number, argv: string[]): number {
-  return emulation_run(argc, argv);
+async function main(argc: number, argv: string[]): Promise<number> {
+  return await emulation_run(argc, argv);
 }
 
 const filePath = process.argv;
-main(process.argv.length, filePath);
+await main(process.argv.length, filePath);

@@ -1,8 +1,10 @@
-import { formatter } from "@/lib/common";
+import { formatter, NO_IMPL, stringCopyLimit } from "@/lib/common";
+import fs from "node:fs";
 
 type rom_header = {
   entry: number;
   logo: number;
+
   title: string;
   new_lic_code: number;
   sgb_flag: number;
@@ -19,38 +21,11 @@ type rom_header = {
 type cartridge_context = {
   filename: string;
   rom_size: number;
-  rom_data: Uint8Array;
+  rom_data: Buffer;
   header: rom_header;
-  ram_enabled: boolean;
-  rom_bank_value: number;
-  ram_bank_value: number;
-  ram_data: Uint8Array | null;
 };
 
-const ctx: cartridge_context = {
-  filename: "",
-  rom_size: 0,
-  rom_data: new Uint8Array(0),
-  header: {
-    entry: 0,
-    logo: 0,
-    title: "",
-    new_lic_code: 0,
-    sgb_flag: 0,
-    type: 0,
-    rom_size: 0,
-    ram_size: 0,
-    dest_code: 0,
-    lic_code: 0,
-    version: 0,
-    checksum: 0,
-    global_checksum: 0,
-  },
-  ram_enabled: false,
-  rom_bank_value: 1,
-  ram_bank_value: 0,
-  ram_data: null,
-};
+const ctx: Partial<cartridge_context> = {};
 
 const ROM_TYPES: string[] = [
   "ROM ONLY",
@@ -148,123 +123,91 @@ const LIC_CODE: Record<number, string> = {
   0x92: "Video system",
   0x93: "Ocean/Acclaim",
   0x95: "Varie",
-  0x96: "Yonezawa/s'pal",
+  0x96: "Yonezawa/s’pal",
   0x97: "Kaneko",
   0x99: "Pack in soft",
-  0xa4: "Konami (Yu-Gi-O!)",
+  0xa4: "Konami (Yu-Gi-Oh!)",
 };
 
 export function cart_lic_name(): string {
-  if (ctx.header.new_lic_code <= 0xa4) {
-    return LIC_CODE[ctx.header.lic_code];
+  if (ctx.header!.new_lic_code <= 0xa4) {
+    return LIC_CODE[ctx.header!.lic_code];
   }
   return "UNKNOWN";
 }
 
 export function cart_type_name(): string {
-  if (ctx.header.type <= 0x22) {
-    return ROM_TYPES[ctx.header.type];
+  if (ctx.header!.type <= 0x22) {
+    return ROM_TYPES[ctx.header!.type];
   }
   return "UNKNOWN";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function cart_load(_cart: string): boolean {
-  return false;
-}
+export function cart_load(cart: string): boolean {
+  ctx.filename = stringCopyLimit(cart, 16);
 
-export function cart_load_from_bytes(data: Uint8Array): boolean {
-  ctx.filename = "ROM";
-  ctx.rom_size = data.length;
-  ctx.rom_data = data;
+  let fileData: Buffer;
 
-  const buffer = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  try {
+    // TODO: figure out endcoding
+    fileData = fs.readFileSync(cart);
+  } catch (err) {
+    console.assert(false, `Failed to open: \n ${cart} \n  ${err}`);
+    return false;
+  }
+
+  console.log(`Opened: \n ${ctx.filename}`);
+  ctx.rom_size = fileData.length;
+  ctx.rom_data = fileData;
 
   ctx.header = {
-    entry: buffer.getUint16(0x0100, true),
-    logo: buffer.getUint16(0x0104, true),
-    title: new TextDecoder().decode(data.slice(0x0134, 0x0143)).replace(/\x00/g, ""),
-    new_lic_code: buffer.getUint16(0x0144, false),
-    sgb_flag: data[0x0146],
-    type: data[0x0147],
-    rom_size: data[0x0148],
-    ram_size: data[0x0149],
-    dest_code: data[0x014a],
-    lic_code: data[0x014b],
-    version: data[0x014c],
-    checksum: data[0x014d],
-    global_checksum: buffer.getUint16(0x014e, false),
+    entry: fileData.readUInt16LE(0x0100),
+    logo: fileData.readUInt16LE(0x0104),
+    title: fileData.toString("utf8", 0x0134, 0x0143).replace(/\x00/g, ""),
+    new_lic_code: fileData.readUInt16BE(0x0144),
+    sgb_flag: fileData.readUInt8(0x0146),
+    type: fileData.readUInt8(0x0147),
+    rom_size: fileData.readUInt8(0x0148),
+    ram_size: fileData.readUInt8(0x0149),
+    dest_code: fileData.readUInt8(0x014a),
+    lic_code: fileData.readUInt8(0x014b),
+    version: fileData.readUInt8(0x014c),
+    checksum: fileData.readUInt8(0x014d),
+    global_checksum: fileData.readUInt16BE(0x014e),
   };
+
+  console.log("Cartridge Loaded:");
+  console.log(formatter("\t Title    : %s", ctx.header.title));
+  console.log(
+    formatter("\t Type     : %2.2X (%s)", ctx.header.type, cart_type_name())
+  );
+  console.log(formatter("\t ROM Size : %d KB", 32 << ctx.header.rom_size));
+  console.log(formatter("\t RAM Size : %2.2X", ctx.header.ram_size));
+  console.log(
+    formatter("\t LIC Code : %2.2X (%s)", ctx.header.lic_code, cart_lic_name())
+  );
+  console.log(formatter("\t ROM Vers : %2.2X", ctx.header.version));
 
   let checksum = 0;
   for (let address = 0x0134; address <= 0x014c; ++address) {
-    checksum = checksum - data[address] - 1;
+    checksum = checksum - ctx.rom_data[address] - 1;
   }
-  const computed = checksum & 0xff;
   console.log(
     formatter(
       "\t Checksum : %2.2X (%s)\n",
       ctx.header.checksum,
-      computed === ctx.header.checksum ? "PASSED" : "FAILED",
-    ),
+      checksum & 0xff ? "PASSED" : "FAILED"
+    )
   );
 
   return true;
 }
 
 export function cart_read(address: number): number {
-  if (address < 0x4000) {
-    return ctx.rom_data[address];
-  }
-
-  if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled || !ctx.ram_data) {
-      return 0xff;
-    }
-    const ram_addr = address - 0xa000 + (ctx.ram_bank_value * 0x2000);
-    return ctx.ram_data[ram_addr] ?? 0xff;
-  }
-
-  const rom_bank_addr = 0x4000 * ctx.rom_bank_value + (address - 0x4000);
-  return ctx.rom_data[rom_bank_addr] ?? 0xff;
+  return ctx.rom_data![address];
 }
 
 export function cart_write(address: number, value: number): void {
-  if (address < 0x2000) {
-    ctx.ram_enabled = (value & 0x0f) === 0x0a;
-    return;
-  }
-
-  if (address >= 0x2000 && address < 0x4000) {
-    let bank = value;
-    if (bank === 0) bank = 1;
-    bank &= 0x1f;
-    ctx.rom_bank_value = bank;
-    return;
-  }
-
-  if (address >= 0x4000 && address < 0x6000) {
-    ctx.ram_bank_value = value & 0x03;
-    return;
-  }
-
-  if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled || !ctx.ram_data) {
-      return;
-    }
-    const ram_addr = address - 0xa000 + (ctx.ram_bank_value * 0x2000);
-    ctx.ram_data[ram_addr] = value;
-  }
-}
-
-export function cart_need_save(): boolean {
-  return ctx.ram_data !== null;
-}
-
-export function cart_battery_save(): void {
-  // Browser: would need to implement save functionality
-}
-
-export function cart_get_filename(): string {
-  return ctx.filename;
+  console.log(formatter("cart_write (%04X)\n", address));
+  NO_IMPL();
 }
