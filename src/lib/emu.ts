@@ -6,21 +6,21 @@ import { ppu_init, ppu_tick, ppu_get_context } from "@/lib/ppu";
 import { dma_tick } from "@/lib/dma";
 import { ui_init, ui_handle_events, ui_update } from "@/lib/ui";
 
-type EmulatorContext = {
+type emu_context = {
   paused: boolean;
   running: boolean;
-  ticks: number;
   die: boolean;
+  ticks: number;
 };
 
-const ctx: EmulatorContext = {
+const ctx: emu_context = {
   paused: false,
   running: false,
-  ticks: 0,
   die: false,
+  ticks: 0,
 };
 
-export function emu_get_context(): EmulatorContext {
+export function emu_get_context(): emu_context {
   return ctx;
 }
 
@@ -47,7 +47,7 @@ export async function cpu_run(): Promise<void> {
   }
 }
 
-export async function emulation_run(
+export async function emu_run(
   argc: number,
   argv: string[],
 ): Promise<number> {
@@ -85,8 +85,8 @@ export async function emulation_run(
   return 0;
 }
 
-export function emu_cycles(cpuCycles: number): void {
-  for (let i = 0; i < cpuCycles; i++) {
+export function emu_cycles(cpu_cycles: number): void {
+  for (let i = 0; i < cpu_cycles; i++) {
     for (let n = 0; n < 4; n++) {
       ctx.ticks++;
       timer_tick();

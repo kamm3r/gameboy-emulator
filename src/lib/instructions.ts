@@ -82,7 +82,6 @@ export const in_type = {
   IN_EI: "IN_EI",
   IN_RST: "IN_RST",
   IN_ERR: "IN_ERR",
-  //CB instructions...
   IN_RLC: "IN_RLC",
   IN_RRC: "IN_RRC",
   IN_RL: "IN_RL",
@@ -117,236 +116,664 @@ export type instruction = {
   param?: number;
 };
 
-const instructions: instruction[] = new Array(0x100).fill(undefined);
+const instructions: Array<instruction | undefined> = new Array(0x100).fill(
+  undefined,
+);
+
 instructions[0x00] = { type: in_type.IN_NOP, mode: addr_mode.AM_IMP };
-instructions[0x01] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D16, reg_1: reg_type.RT_BC };
-instructions[0x02] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_R, reg_1: reg_type.RT_BC, reg_2: reg_type.RT_A };
-instructions[0x03] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_BC };
-instructions[0x04] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_B };
-instructions[0x05] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_B };
-instructions[0x06] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_B };
+instructions[0x01] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D16,
+  reg_1: reg_type.RT_BC,
+};
+instructions[0x02] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_MR_R,
+  reg_1: reg_type.RT_BC,
+  reg_2: reg_type.RT_A,
+};
+instructions[0x03] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_BC,
+};
+instructions[0x04] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_B,
+};
+instructions[0x05] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_B,
+};
+instructions[0x06] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_B,
+};
 instructions[0x07] = { type: in_type.IN_RLCA, mode: addr_mode.AM_IMP };
-instructions[0x08] = { type: in_type.IN_LD, mode: addr_mode.AM_A16_R, reg_2: reg_type.RT_SP };
-instructions[0x09] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_BC };
-instructions[0x0a] = { type: in_type.IN_LD, mode: addr_mode.AM_R_MR, reg_1: reg_type.RT_A, reg_2: reg_type.RT_BC };
-instructions[0x0b] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_BC };
-instructions[0x0c] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_C };
-instructions[0x0d] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_C };
-instructions[0x0e] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_C };
+instructions[0x08] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_A16_R,
+  reg_2: reg_type.RT_SP,
+};
+instructions[0x09] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_BC,
+};
+instructions[0x0a] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_MR,
+  reg_1: reg_type.RT_A,
+  reg_2: reg_type.RT_BC,
+};
+instructions[0x0b] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_BC,
+};
+instructions[0x0c] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_C,
+};
+instructions[0x0d] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_C,
+};
+instructions[0x0e] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_C,
+};
 instructions[0x0f] = { type: in_type.IN_RRCA, mode: addr_mode.AM_IMP };
 
-// 0x1X
+// 0x1x
 instructions[0x10] = { type: in_type.IN_STOP, mode: addr_mode.AM_IMP };
-instructions[0x11] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D16, reg_1: reg_type.RT_DE };
-instructions[0x12] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_R, reg_1: reg_type.RT_DE, reg_2: reg_type.RT_A };
-instructions[0x13] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
-instructions[0x14] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_D };
-instructions[0x15] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_D };
-instructions[0x16] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_D };
+instructions[0x11] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D16,
+  reg_1: reg_type.RT_DE,
+};
+instructions[0x12] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_MR_R,
+  reg_1: reg_type.RT_DE,
+  reg_2: reg_type.RT_A,
+};
+instructions[0x13] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_DE,
+};
+instructions[0x14] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_D,
+};
+instructions[0x15] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_D,
+};
+instructions[0x16] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_D,
+};
 instructions[0x17] = { type: in_type.IN_RLA, mode: addr_mode.AM_IMP };
 instructions[0x18] = { type: in_type.IN_JR, mode: addr_mode.AM_D8 };
-instructions[0x19] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_DE };
-instructions[0x1a] = { type: in_type.IN_LD, mode: addr_mode.AM_R_MR, reg_1: reg_type.RT_A, reg_2: reg_type.RT_DE };
-instructions[0x1b] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
-instructions[0x1c] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_E };
-instructions[0x1d] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_E };
-instructions[0x1e] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_E };
+instructions[0x19] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_DE,
+};
+instructions[0x1a] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_MR,
+  reg_1: reg_type.RT_A,
+  reg_2: reg_type.RT_DE,
+};
+instructions[0x1b] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_DE,
+};
+instructions[0x1c] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_E,
+};
+instructions[0x1d] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_E,
+};
+instructions[0x1e] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_E,
+};
 instructions[0x1f] = { type: in_type.IN_RRA, mode: addr_mode.AM_IMP };
 
-// 0x2X
-instructions[0x20] = { type: in_type.IN_JR, mode: addr_mode.AM_D8, cond: cond_type.CT_NZ };
-instructions[0x21] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D16, reg_1: reg_type.RT_HL };
-instructions[0x22] = { type: in_type.IN_LD, mode: addr_mode.AM_HLI_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_A };
-instructions[0x23] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
-instructions[0x24] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_H };
-instructions[0x25] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_H };
-instructions[0x26] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_H };
+// 0x2x
+instructions[0x20] = {
+  type: in_type.IN_JR,
+  mode: addr_mode.AM_D8,
+  cond: cond_type.CT_NZ,
+};
+instructions[0x21] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D16,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0x22] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_HLI_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_A,
+};
+instructions[0x23] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0x24] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_H,
+};
+instructions[0x25] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_H,
+};
+instructions[0x26] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_H,
+};
 instructions[0x27] = { type: in_type.IN_DAA, mode: addr_mode.AM_IMP };
-instructions[0x28] = { type: in_type.IN_JR, mode: addr_mode.AM_D8, cond: cond_type.CT_Z };
-instructions[0x29] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_HL };
-instructions[0x2a] = { type: in_type.IN_LD, mode: addr_mode.AM_R_HLI, reg_1: reg_type.RT_A, reg_2: reg_type.RT_HL };
-instructions[0x2b] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
-instructions[0x2c] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_L };
-instructions[0x2d] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_L };
-instructions[0x2e] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_L };
+instructions[0x28] = {
+  type: in_type.IN_JR,
+  mode: addr_mode.AM_D8,
+  cond: cond_type.CT_Z,
+};
+instructions[0x29] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_HL,
+};
+instructions[0x2a] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_HLI,
+  reg_1: reg_type.RT_A,
+  reg_2: reg_type.RT_HL,
+};
+instructions[0x2b] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0x2c] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_L,
+};
+instructions[0x2d] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_L,
+};
+instructions[0x2e] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_L,
+};
 instructions[0x2f] = { type: in_type.IN_CPL, mode: addr_mode.AM_IMP };
 
-// 0x3X
-instructions[0x30] = { type: in_type.IN_JR, mode: addr_mode.AM_D8, cond: cond_type.CT_NC };
-instructions[0x31] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D16, reg_1: reg_type.RT_SP };
-instructions[0x32] = { type: in_type.IN_LD, mode: addr_mode.AM_HLD_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_A };
-instructions[0x33] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_SP };
-instructions[0x34] = { type: in_type.IN_INC, mode: addr_mode.AM_MR, reg_1: reg_type.RT_HL };
-instructions[0x35] = { type: in_type.IN_DEC, mode: addr_mode.AM_MR, reg_1: reg_type.RT_HL };
-instructions[0x36] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_D8, reg_1: reg_type.RT_HL };
+// 0x3x
+instructions[0x30] = {
+  type: in_type.IN_JR,
+  mode: addr_mode.AM_D8,
+  cond: cond_type.CT_NC,
+};
+instructions[0x31] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D16,
+  reg_1: reg_type.RT_SP,
+};
+instructions[0x32] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_HLD_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_A,
+};
+instructions[0x33] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_SP,
+};
+instructions[0x34] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_MR,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0x35] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_MR,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0x36] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_MR_D8,
+  reg_1: reg_type.RT_HL,
+};
 instructions[0x37] = { type: in_type.IN_SCF, mode: addr_mode.AM_IMP };
-instructions[0x38] = { type: in_type.IN_JR, mode: addr_mode.AM_D8, cond: cond_type.CT_C };
-instructions[0x39] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_SP };
-instructions[0x3a] = { type: in_type.IN_LD, mode: addr_mode.AM_R_HLD, reg_1: reg_type.RT_A, reg_2: reg_type.RT_HL };
-instructions[0x3b] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_SP };
-instructions[0x3c] = { type: in_type.IN_INC, mode: addr_mode.AM_R, reg_1: reg_type.RT_A };
-instructions[0x3d] = { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_A };
-instructions[0x3e] = { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
+instructions[0x38] = {
+  type: in_type.IN_JR,
+  mode: addr_mode.AM_D8,
+  cond: cond_type.CT_C,
+};
+instructions[0x39] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_R,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_SP,
+};
+instructions[0x3a] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_HLD,
+  reg_1: reg_type.RT_A,
+  reg_2: reg_type.RT_HL,
+};
+instructions[0x3b] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_SP,
+};
+instructions[0x3c] = {
+  type: in_type.IN_INC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_A,
+};
+instructions[0x3d] = {
+  type: in_type.IN_DEC,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_A,
+};
+instructions[0x3e] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
 instructions[0x3f] = { type: in_type.IN_CCF, mode: addr_mode.AM_IMP };
 
-// 0x4X - 0x7X: LD r,r instructions
+const regs = [
+  reg_type.RT_B,
+  reg_type.RT_C,
+  reg_type.RT_D,
+  reg_type.RT_E,
+  reg_type.RT_H,
+  reg_type.RT_L,
+  reg_type.RT_HL,
+  reg_type.RT_A,
+] as const;
+
+// 0x4x - 0x7x
 for (let i = 0; i < 8; i++) {
   for (let j = 0; j < 8; j++) {
     const opcode = 0x40 + i * 8 + j;
-    const regs = ['RT_B', 'RT_C', 'RT_D', 'RT_E', 'RT_H', 'RT_L', 'RT_HL', 'RT_A'] as const;
-    instructions[opcode] = { type: in_type.IN_LD, mode: addr_mode.AM_R_R, reg_1: regs[i], reg_2: regs[j] };
+    const dst = regs[i];
+    const src = regs[j];
+
+    if (opcode === 0x76) {
+      instructions[opcode] = {
+        type: in_type.IN_HALT,
+        mode: addr_mode.AM_IMP,
+      };
+      continue;
+    }
+
+    if (dst === reg_type.RT_HL) {
+      instructions[opcode] = {
+        type: in_type.IN_LD,
+        mode: addr_mode.AM_MR_R,
+        reg_1: reg_type.RT_HL,
+        reg_2: src,
+      };
+    } else if (src === reg_type.RT_HL) {
+      instructions[opcode] = {
+        type: in_type.IN_LD,
+        mode: addr_mode.AM_R_MR,
+        reg_1: dst,
+        reg_2: reg_type.RT_HL,
+      };
+    } else {
+      instructions[opcode] = {
+        type: in_type.IN_LD,
+        mode: addr_mode.AM_R_R,
+        reg_1: dst,
+        reg_2: src,
+      };
+    }
   }
 }
 
-// 0x70-0x77: LD (HL), r
-for (let i = 0; i < 8; i++) {
-  const regs = ['RT_B', 'RT_C', 'RT_D', 'RT_E', 'RT_H', 'RT_L', 'RT_HL', 'RT_A'] as const;
-  instructions[0x70 + i] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_R, reg_1: reg_type.RT_HL, reg_2: regs[i] };
-}
-instructions[0x76] = { type: in_type.IN_HALT, mode: addr_mode.AM_IMP };
+// 0x8x - 0xbf
+const alu_ops = [
+  in_type.IN_ADD,
+  in_type.IN_ADC,
+  in_type.IN_SUB,
+  in_type.IN_SBC,
+  in_type.IN_AND,
+  in_type.IN_XOR,
+  in_type.IN_OR,
+  in_type.IN_CP,
+] as const;
 
-// 0x8X - 0xBF: ALU operations
-for (let i = 0; i < 8; i++) {
-  const regs = ['RT_B', 'RT_C', 'RT_D', 'RT_E', 'RT_H', 'RT_L', 'RT_HL', 'RT_A'] as const;
-  // ADD
-  instructions[0x80 + i] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // ADC
-  instructions[0x88 + i] = { type: in_type.IN_ADC, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // SUB
-  instructions[0x90 + i] = { type: in_type.IN_SUB, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // SBC
-  instructions[0x98 + i] = { type: in_type.IN_SBC, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // AND
-  instructions[0xa0 + i] = { type: in_type.IN_AND, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // XOR
-  instructions[0xa8 + i] = { type: in_type.IN_XOR, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // OR
-  instructions[0xb0 + i] = { type: in_type.IN_OR, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
-  // CP
-  instructions[0xb8 + i] = { type: in_type.IN_CP, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_A, reg_2: regs[i] };
+for (let group = 0; group < alu_ops.length; group++) {
+  for (let i = 0; i < 8; i++) {
+    const opcode = 0x80 + group * 8 + i;
+    const src = regs[i];
+
+    instructions[opcode] = {
+      type: alu_ops[group],
+      mode:
+        src === reg_type.RT_HL ? addr_mode.AM_R_MR : addr_mode.AM_R_R,
+      reg_1: reg_type.RT_A,
+      reg_2: src,
+    };
+  }
 }
-// 0xC0-0xCF
-instructions[0xc0] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_NZ };
-instructions[0xc1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_BC };
-instructions[0xc2] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_NZ };
+
+// 0xc0 - 0xcf
+instructions[0xc0] = {
+  type: in_type.IN_RET,
+  mode: addr_mode.AM_IMP,
+  cond: cond_type.CT_NZ,
+};
+instructions[0xc1] = {
+  type: in_type.IN_POP,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_BC,
+};
+instructions[0xc2] = {
+  type: in_type.IN_JP,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_NZ,
+};
 instructions[0xc3] = { type: in_type.IN_JP, mode: addr_mode.AM_D16 };
-instructions[0xc4] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_NZ };
-instructions[0xc5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_BC };
-instructions[0xc6] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xc7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x00 };
-instructions[0xc8] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_Z };
+instructions[0xc4] = {
+  type: in_type.IN_CALL,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_NZ,
+};
+instructions[0xc5] = {
+  type: in_type.IN_PUSH,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_BC,
+};
+instructions[0xc6] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xc7] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x00,
+};
+instructions[0xc8] = {
+  type: in_type.IN_RET,
+  mode: addr_mode.AM_IMP,
+  cond: cond_type.CT_Z,
+};
 instructions[0xc9] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP };
-instructions[0xca] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_Z };
+instructions[0xca] = {
+  type: in_type.IN_JP,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_Z,
+};
 instructions[0xcb] = { type: in_type.IN_CB, mode: addr_mode.AM_D8 };
-instructions[0xcc] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_Z };
+instructions[0xcc] = {
+  type: in_type.IN_CALL,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_Z,
+};
 instructions[0xcd] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16 };
-instructions[0xce] = { type: in_type.IN_ADC, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xcf] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x08 };
+instructions[0xce] = {
+  type: in_type.IN_ADC,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xcf] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x08,
+};
 
-// 0xD0-0xDF
-instructions[0xd0] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_NC };
-instructions[0xd1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
-instructions[0xd2] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_NC };
-instructions[0xd3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xd4] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_NC };
-instructions[0xd5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_DE };
-instructions[0xd6] = { type: in_type.IN_SUB, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xd7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x10 };
-instructions[0xd8] = { type: in_type.IN_RET, mode: addr_mode.AM_IMP, cond: cond_type.CT_C };
+// 0xd0 - 0xdf
+instructions[0xd0] = {
+  type: in_type.IN_RET,
+  mode: addr_mode.AM_IMP,
+  cond: cond_type.CT_NC,
+};
+instructions[0xd1] = {
+  type: in_type.IN_POP,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_DE,
+};
+instructions[0xd2] = {
+  type: in_type.IN_JP,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_NC,
+};
+instructions[0xd3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xd4] = {
+  type: in_type.IN_CALL,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_NC,
+};
+instructions[0xd5] = {
+  type: in_type.IN_PUSH,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_DE,
+};
+instructions[0xd6] = {
+  type: in_type.IN_SUB,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xd7] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x10,
+};
+instructions[0xd8] = {
+  type: in_type.IN_RET,
+  mode: addr_mode.AM_IMP,
+  cond: cond_type.CT_C,
+};
 instructions[0xd9] = { type: in_type.IN_RETI, mode: addr_mode.AM_IMP };
-instructions[0xda] = { type: in_type.IN_JP, mode: addr_mode.AM_D16, cond: cond_type.CT_C };
-instructions[0xdb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xdc] = { type: in_type.IN_CALL, mode: addr_mode.AM_D16, cond: cond_type.CT_C };
-instructions[0xdd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xde] = { type: in_type.IN_SBC, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xdf] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x18 };
+instructions[0xda] = {
+  type: in_type.IN_JP,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_C,
+};
+instructions[0xdb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xdc] = {
+  type: in_type.IN_CALL,
+  mode: addr_mode.AM_D16,
+  cond: cond_type.CT_C,
+};
+instructions[0xdd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xde] = {
+  type: in_type.IN_SBC,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xdf] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x18,
+};
 
-// 0xE0-0xEF
-instructions[0xe0] = { type: in_type.IN_LDH, mode: addr_mode.AM_A8_R, reg_2: reg_type.RT_A };
-instructions[0xe1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
-instructions[0xe2] = { type: in_type.IN_LD, mode: addr_mode.AM_MR_R, reg_1: reg_type.RT_C, reg_2: reg_type.RT_A };
-instructions[0xe3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xe4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xe5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
-instructions[0xe6] = { type: in_type.IN_AND, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xe7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x20 };
-instructions[0xe8] = { type: in_type.IN_ADD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_SP };
-instructions[0xe9] = { type: in_type.IN_JP, mode: addr_mode.AM_R, reg_1: reg_type.RT_HL };
-instructions[0xea] = { type: in_type.IN_LD, mode: addr_mode.AM_A16_R, reg_2: reg_type.RT_A };
-instructions[0xeb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xec] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xed] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xee] = { type: in_type.IN_XOR, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xef] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x28 };
+// 0xe0 - 0xef
+instructions[0xe0] = {
+  type: in_type.IN_LDH,
+  mode: addr_mode.AM_A8_R,
+  reg_2: reg_type.RT_A,
+};
+instructions[0xe1] = {
+  type: in_type.IN_POP,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0xe2] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_MR_R,
+  reg_1: reg_type.RT_C,
+  reg_2: reg_type.RT_A,
+};
+instructions[0xe3] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xe4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xe5] = {
+  type: in_type.IN_PUSH,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0xe6] = {
+  type: in_type.IN_AND,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xe7] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x20,
+};
+instructions[0xe8] = {
+  type: in_type.IN_ADD,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_SP,
+};
+instructions[0xe9] = {
+  type: in_type.IN_JP,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_HL,
+};
+instructions[0xea] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_A16_R,
+  reg_2: reg_type.RT_A,
+};
+instructions[0xeb] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xec] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xed] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xee] = {
+  type: in_type.IN_XOR,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xef] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x28,
+};
 
-// 0xF0-0xFF
-instructions[0xf0] = { type: in_type.IN_LDH, mode: addr_mode.AM_R_A8, reg_1: reg_type.RT_A };
-instructions[0xf1] = { type: in_type.IN_POP, mode: addr_mode.AM_R, reg_1: reg_type.RT_AF };
-instructions[0xf2] = { type: in_type.IN_LD, mode: addr_mode.AM_R_MR, reg_1: reg_type.RT_A, reg_2: reg_type.RT_C };
+// 0xf0 - 0xff
+instructions[0xf0] = {
+  type: in_type.IN_LDH,
+  mode: addr_mode.AM_R_A8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xf1] = {
+  type: in_type.IN_POP,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_AF,
+};
+instructions[0xf2] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_MR,
+  reg_1: reg_type.RT_A,
+  reg_2: reg_type.RT_C,
+};
 instructions[0xf3] = { type: in_type.IN_DI, mode: addr_mode.AM_IMP };
-instructions[0xf4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xf5] = { type: in_type.IN_PUSH, mode: addr_mode.AM_R, reg_1: reg_type.RT_AF };
-instructions[0xf6] = { type: in_type.IN_OR, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xf7] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x30 };
-instructions[0xf8] = { type: in_type.IN_LD, mode: addr_mode.AM_HL_SPR, reg_1: reg_type.RT_HL, reg_2: reg_type.RT_SP };
-instructions[0xf9] = { type: in_type.IN_LD, mode: addr_mode.AM_R_R, reg_1: reg_type.RT_SP, reg_2: reg_type.RT_HL };
-instructions[0xfa] = { type: in_type.IN_LD, mode: addr_mode.AM_R_A16, reg_1: reg_type.RT_A };
+instructions[0xf4] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xf5] = {
+  type: in_type.IN_PUSH,
+  mode: addr_mode.AM_R,
+  reg_1: reg_type.RT_AF,
+};
+instructions[0xf6] = {
+  type: in_type.IN_OR,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xf7] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x30,
+};
+instructions[0xf8] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_HL_SPR,
+  reg_1: reg_type.RT_HL,
+  reg_2: reg_type.RT_SP,
+};
+instructions[0xf9] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_R,
+  reg_1: reg_type.RT_SP,
+  reg_2: reg_type.RT_HL,
+};
+instructions[0xfa] = {
+  type: in_type.IN_LD,
+  mode: addr_mode.AM_R_A16,
+  reg_1: reg_type.RT_A,
+};
 instructions[0xfb] = { type: in_type.IN_EI, mode: addr_mode.AM_IMP };
-instructions[0xfc] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xfd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP }; // Undefined
-instructions[0xfe] = { type: in_type.IN_CP, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_A };
-instructions[0xff] = { type: in_type.IN_RST, mode: addr_mode.AM_IMP, param: 0x38 };
+instructions[0xfc] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xfd] = { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
+instructions[0xfe] = {
+  type: in_type.IN_CP,
+  mode: addr_mode.AM_R_D8,
+  reg_1: reg_type.RT_A,
+};
+instructions[0xff] = {
+  type: in_type.IN_RST,
+  mode: addr_mode.AM_IMP,
+  param: 0x38,
+};
 
-// const instructions: Record<number, instruction> = {
-//   0x00: { type: in_type.IN_NOP, mode: addr_mode.AM_IMP },
-//   0x05: { type: in_type.IN_DEC, mode: addr_mode.AM_R, reg_1: reg_type.RT_B },
-//   0x0e: { type: in_type.IN_LD, mode: addr_mode.AM_R_D8, reg_1: reg_type.RT_C },
-//   0xaf: { type: in_type.IN_XOR, mode: addr_mode.AM_R, reg_1: reg_type.RT_A },
-//   0xc3: { type: in_type.IN_JP, mode: addr_mode.AM_D16 },
-//   0xf3: { type: in_type.IN_DI },
-// };
-
-// CB prefix opcodes - fill in when needed
-const cb_instructions: instruction[] = new Array(0x100).fill(undefined);
-for (let i = 0; i < 8; i++) {
-  cb_instructions[i] = { type: in_type.IN_RLC, mode: addr_mode.AM_R };
-  cb_instructions[i + 8] = { type: in_type.IN_RRC, mode: addr_mode.AM_R };
-  cb_instructions[i + 16] = { type: in_type.IN_RL, mode: addr_mode.AM_R };
-  cb_instructions[i + 24] = { type: in_type.IN_RR, mode: addr_mode.AM_R };
-  cb_instructions[i + 32] = { type: in_type.IN_SLA, mode: addr_mode.AM_R };
-  cb_instructions[i + 40] = { type: in_type.IN_SRA, mode: addr_mode.AM_R };
-  cb_instructions[i + 48] = { type: in_type.IN_SWAP, mode: addr_mode.AM_R };
-  cb_instructions[i + 56] = { type: in_type.IN_SRL, mode: addr_mode.AM_R };
-}
-for (let i = 0; i < 64; i++) {
-  if (cb_instructions[i + 64] === undefined) {
-    cb_instructions[i + 64] = { type: in_type.IN_BIT, mode: addr_mode.AM_R };
-  }
-}
-for (let i = 0; i < 64; i++) {
-  if (cb_instructions[i + 128] === undefined) {
-    cb_instructions[i + 128] = { type: in_type.IN_RES, mode: addr_mode.AM_R };
-  }
-}
-for (let i = 0; i < 64; i++) {
-  if (cb_instructions[i + 192] === undefined) {
-    cb_instructions[i + 192] = { type: in_type.IN_SET, mode: addr_mode.AM_R };
-  }
-}
+const cb_instructions: Array<instruction | undefined> = new Array(0x100).fill(
+  undefined,
+);
 
 export function instruction_by_opcode(opcode: number): instruction {
-  const inst = instructions[opcode];
+  const inst = instructions[opcode & 0xff];
+
   if (inst === undefined) {
     return { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
   }
+
   return inst;
 }
 
 export function cb_instruction_by_opcode(opcode: number): instruction {
-  const inst = cb_instructions[opcode];
+  const inst = cb_instructions[opcode & 0xff];
+
   if (inst === undefined) {
     return { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
   }
+
   return inst;
 }
 
@@ -401,13 +828,57 @@ const inst_lookup: string[] = [
   "IN_SET",
 ];
 
-const instructionNames = Object.keys(in_type) as Array<InType>;
-const instructionIndexMap = instructionNames.reduce((map, name, index) => {
-  map[in_type[name as keyof typeof in_type]] = index;
-  return map;
-}, {} as { [key in InType]: number });
+const instruction_name_map: Record<InType, string> = {
+  IN_NONE: "<NONE>",
+  IN_NOP: "NOP",
+  IN_LD: "LD",
+  IN_INC: "INC",
+  IN_DEC: "DEC",
+  IN_RLCA: "RLCA",
+  IN_ADD: "ADD",
+  IN_RRCA: "RRCA",
+  IN_STOP: "STOP",
+  IN_RLA: "RLA",
+  IN_JR: "JR",
+  IN_RRA: "RRA",
+  IN_DAA: "DAA",
+  IN_CPL: "CPL",
+  IN_SCF: "SCF",
+  IN_CCF: "CCF",
+  IN_HALT: "HALT",
+  IN_ADC: "ADC",
+  IN_SUB: "SUB",
+  IN_SBC: "SBC",
+  IN_AND: "AND",
+  IN_XOR: "XOR",
+  IN_OR: "OR",
+  IN_CP: "CP",
+  IN_POP: "POP",
+  IN_JP: "JP",
+  IN_PUSH: "PUSH",
+  IN_RET: "RET",
+  IN_CB: "CB",
+  IN_CALL: "CALL",
+  IN_RETI: "RETI",
+  IN_LDH: "LDH",
+  IN_JPHL: "JPHL",
+  IN_DI: "DI",
+  IN_EI: "EI",
+  IN_RST: "RST",
+  IN_ERR: "IN_ERR",
+  IN_RLC: "IN_RLC",
+  IN_RRC: "IN_RRC",
+  IN_RL: "IN_RL",
+  IN_RR: "IN_RR",
+  IN_SLA: "IN_SLA",
+  IN_SRA: "IN_SRA",
+  IN_SWAP: "IN_SWAP",
+  IN_SRL: "IN_SRL",
+  IN_BIT: "IN_BIT",
+  IN_RES: "IN_RES",
+  IN_SET: "IN_SET",
+};
 
 export function instruction_name(t: InType): string {
-  const index = instructionIndexMap[t];
-  return inst_lookup[index];
+  return instruction_name_map[t];
 }

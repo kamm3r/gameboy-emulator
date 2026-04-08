@@ -48,11 +48,11 @@ export function bus_write(address: number, value: number): void {
       return;
     }
     ppu_oam_write(address, value);
-  } else if (address < 0xff00) {
+  } else if (address < 0xFF00) {
     // unusable reserved
-  } else if (address < 0xff80) {
+  } else if (address < 0xFF80) {
     io_write(address, value);
-  } else if (address === 0xffff) {
+  } else if (address === 0xFFFF) {
     cpu_set_ie_register(value);
   } else {
     hram_write(address, value);
@@ -66,6 +66,6 @@ export function bus_read16(address: number): number {
 }
 
 export function bus_write16(address: number, value: number): void {
-  bus_write(address + 1, (value >> 8) & 0xff);
-  bus_write(address, value & 0xff);
+  bus_write(address + 1, (value >> 8) & 0xFF);
+  bus_write(address, value & 0xFF);
 }

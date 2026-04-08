@@ -1,7 +1,7 @@
 import { in_type, RegType, type InType } from "@/lib/instructions";
 import { type cpu_context } from "@/lib/cpu";
 import { bus_read, bus_write, bus_write16 } from "@/lib/bus";
-import { cpu_read_register, cpu_set_register } from "@/lib/cpu_util";
+import { cpu_read_register, cpu_read_register8, cpu_set_register, cpu_set_register8 } from "@/lib/cpu_util";
 import { stack_pop, stack_push, stack_push16 } from "@/lib/stack";
 import { emu_cycles } from "@/lib/emu";
 
@@ -71,74 +71,66 @@ export function proc_cb(ctx: cpu_context): void {
   const reg = decode_reg(op & 0b111);
   const bit = (op >> 3) & 0b111;
   const bit_op = (op >> 6) & 0b11;
-
-  let regVal = cpu_read_register(ctx, reg) & 0xff;
+  let regVal = cpu_read_register8(ctx, reg);
 
   emu_cycles(1);
 
   if (reg === "RT_HL") {
-    regVal = bus_read(cpu_read_register(ctx, "RT_HL"));
     emu_cycles(2);
   }
 
   switch (bit_op) {
-    case 1: {
+    case 1:
       cpu_set_flags(ctx, (regVal & (1 << bit)) === 0 ? 1 : 0, 0, 1, -1);
       return;
-    }
 
-    case 2: {
+    case 2:
       regVal &= ~(1 << bit);
-      write_cb_result(ctx, reg, regVal);
+      cpu_set_register8(ctx, reg, regVal);
       return;
-    }
 
-    case 3: {
+    case 3:
       regVal |= 1 << bit;
-      write_cb_result(ctx, reg, regVal);
+      cpu_set_register8(ctx, reg, regVal);
       return;
-    }
   }
 
-  const flagC = (ctx.registers.F & 0x10) !== 0;
+  const flagC = (ctx.registers.F & 0x10) !== 0 ? 1 : 0;
 
   switch (bit) {
     case 0: {
-      const setC = (regVal & 0x80) !== 0;
       let result = (regVal << 1) & 0xff;
+      const setC = (regVal & 0x80) !== 0;
 
       if (setC) {
         result |= 1;
       }
 
-      write_cb_result(ctx, reg, result);
+      cpu_set_register8(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, setC ? 1 : 0);
       return;
     }
 
     case 1: {
       const old = regVal;
-      regVal = (regVal >> 1) | ((old & 1) << 7);
-
-      write_cb_result(ctx, reg, regVal);
+      regVal = ((regVal >> 1) | (old << 7)) & 0xff;
+      cpu_set_register8(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 1 ? 1 : 0);
       return;
     }
 
     case 2: {
       const old = regVal;
-      regVal = ((regVal << 1) | (flagC ? 1 : 0)) & 0xff;
-
-      write_cb_result(ctx, reg, regVal);
+      regVal = ((regVal << 1) | flagC) & 0xff;
+      cpu_set_register8(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 0x80 ? 1 : 0);
       return;
     }
 
     case 3: {
       const old = regVal;
-      regVal = (regVal >> 1) | (flagC ? 0x80 : 0);
-
-      write_cb_result(ctx, reg, regVal);
+      regVal = ((regVal >> 1) | (flagC << 7)) & 0xff;
+      cpu_set_register8(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 1 ? 1 : 0);
       return;
     }
@@ -146,32 +138,28 @@ export function proc_cb(ctx: cpu_context): void {
     case 4: {
       const old = regVal;
       regVal = (regVal << 1) & 0xff;
-
-      write_cb_result(ctx, reg, regVal);
+      cpu_set_register8(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 0x80 ? 1 : 0);
       return;
     }
 
     case 5: {
       const result = ((regVal >> 1) | (regVal & 0x80)) & 0xff;
-
-      write_cb_result(ctx, reg, result);
+      cpu_set_register8(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, regVal & 1 ? 1 : 0);
       return;
     }
 
     case 6: {
       regVal = ((regVal & 0xf0) >> 4) | ((regVal & 0x0f) << 4);
-
-      write_cb_result(ctx, reg, regVal);
+      cpu_set_register8(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, 0);
       return;
     }
 
     case 7: {
       const result = (regVal >> 1) & 0xff;
-
-      write_cb_result(ctx, reg, result);
+      cpu_set_register8(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, regVal & 1 ? 1 : 0);
       return;
     }
@@ -254,28 +242,30 @@ export function proc_rra(ctx: cpu_context): void {
 }
 
 export function proc_and(ctx: cpu_context): void {
-  ctx.registers.A &= ctx.fetched_data & 0xff;
+  ctx.registers.A = (ctx.registers.A & (ctx.fetched_data & 0xff)) & 0xff;
   cpu_set_flags(ctx, ctx.registers.A === 0 ? 1 : 0, 0, 1, 0);
 }
 
 export function proc_xor(ctx: cpu_context): void {
-  ctx.registers.A ^= ctx.fetched_data & 0xff;
+  ctx.registers.A = (ctx.registers.A ^ (ctx.fetched_data & 0xff)) & 0xff;
   cpu_set_flags(ctx, ctx.registers.A === 0 ? 1 : 0, 0, 0, 0);
 }
 
 export function proc_or(ctx: cpu_context): void {
-  ctx.registers.A |= ctx.fetched_data & 0xff;
+  ctx.registers.A = (ctx.registers.A | (ctx.fetched_data & 0xff)) & 0xff;
   cpu_set_flags(ctx, ctx.registers.A === 0 ? 1 : 0, 0, 0, 0);
 }
 
 export function proc_cp(ctx: cpu_context): void {
-  const n = ctx.registers.A - ctx.fetched_data;
+  const a = ctx.registers.A & 0xff;
+  const fetched = ctx.fetched_data & 0xff;
+  const n = a - fetched;
 
   cpu_set_flags(
     ctx,
     n === 0 ? 1 : 0,
     1,
-    ((ctx.registers.A & 0x0f) - (ctx.fetched_data & 0x0f)) < 0 ? 1 : 0,
+    ((a & 0x0f) - (fetched & 0x0f)) < 0 ? 1 : 0,
     n < 0 ? 1 : 0,
   );
 }
@@ -516,28 +506,30 @@ export function proc_dec(ctx: cpu_context): void {
 }
 
 export function proc_sub(ctx: cpu_context): void {
-  const regValue = cpu_read_register(ctx, ctx.current_instruction?.reg_1!);
+  const reg = ctx.current_instruction?.reg_1!;
+  const regValue = cpu_read_register(ctx, reg);
   const value = regValue - ctx.fetched_data;
 
-  const z = (value & 0xff) === 0 ? 1 : 0;
+  const z = value === 0 ? 1 : 0;
   const h = ((regValue & 0x0f) - (ctx.fetched_data & 0x0f)) < 0 ? 1 : 0;
   const c = regValue - ctx.fetched_data < 0 ? 1 : 0;
 
-  cpu_set_register(ctx, ctx.current_instruction?.reg_1!, value & 0xff);
+  cpu_set_register(ctx, reg, value);
   cpu_set_flags(ctx, z, 1, h, c);
 }
 
 export function proc_sbc(ctx: cpu_context): void {
-  const regValue = cpu_read_register(ctx, ctx.current_instruction?.reg_1!);
+  const reg = ctx.current_instruction?.reg_1!;
+  const regValue = cpu_read_register(ctx, reg);
   const carry = (ctx.registers.F & 0x10) !== 0 ? 1 : 0;
   const value = (ctx.fetched_data & 0xff) + carry;
-  const result = regValue - value;
 
-  const z = (result & 0xff) === 0 ? 1 : 0;
-  const h = ((regValue & 0x0f) - ((ctx.fetched_data & 0x0f) + carry)) < 0 ? 1 : 0;
-  const c = result < 0 ? 1 : 0;
+  const z = regValue - value === 0 ? 1 : 0;
+  const h =
+    ((regValue & 0x0f) - (ctx.fetched_data & 0x0f) - carry) < 0 ? 1 : 0;
+  const c = regValue - (ctx.fetched_data & 0xff) - carry < 0 ? 1 : 0;
 
-  cpu_set_register(ctx, ctx.current_instruction?.reg_1!, result & 0xff);
+  cpu_set_register(ctx, reg, regValue - value);
   cpu_set_flags(ctx, z, 1, h, c);
 }
 

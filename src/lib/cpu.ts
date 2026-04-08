@@ -56,13 +56,16 @@ const ctx: cpu_context = {
     PC: 0,
     SP: 0,
   },
+
   fetched_data: 0,
   memory_destination: 0,
   destination_is_memory: false,
   current_opcode: 0,
   current_instruction: null,
+
   halted: false,
   stepping: false,
+
   int_master_enabled: false,
   enabling_ime: false,
   ie_register: 0,
@@ -74,12 +77,6 @@ const CPU_DEBUG = false;
 export function cpu_init(): void {
   ctx.registers.PC = 0x0100;
   ctx.registers.SP = 0xfffe;
-
-  // Matches C:
-  // AF = 0xB001 -> A=0x01, F=0xB0 on little-endian layout
-  // BC = 0x1300 -> B=0x00, C=0x13
-  // DE = 0xD800 -> D=0x00, E=0xD8
-  // HL = 0x4D01 -> H=0x01, L=0x4D
   ctx.registers.A = 0x01;
   ctx.registers.F = 0xb0;
   ctx.registers.B = 0x00;
@@ -107,33 +104,34 @@ export function cpu_init(): void {
 }
 
 export function fetch_instruction(): void {
-  ctx.current_opcode = bus_read(ctx.registers.PC++);
+  ctx.current_opcode = bus_read(ctx.registers.PC) & 0xff;
+  ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
   ctx.current_instruction = instruction_by_opcode(ctx.current_opcode) ?? null;
 }
 
 export function execute(): void {
-  if (!ctx.current_instruction) {
-    console.log(
+  const inst = ctx.current_instruction;
+
+  if (!inst) {
+    throw new Error(
       `Unknown instruction ${ctx.current_opcode
         .toString(16)
-        .padStart(2, "0")} at PC ${(ctx.registers.PC - 1)
+        .padStart(2, "0")} at PC ${((ctx.registers.PC - 1) & 0xffff)
         .toString(16)
         .padStart(4, "0")}`,
     );
-    return;
   }
 
-  const proc = instruction_get_processor(ctx.current_instruction.type);
+  const proc = instruction_get_processor(inst.type);
 
   if (!proc) {
-    console.log(
-      `INVALID INSTRUCTION! ${ctx.current_opcode
+    throw new Error(
+      `No processor for instruction ${instruction_name(
+        inst.type,
+      )} opcode=${ctx.current_opcode
         .toString(16)
-        .padStart(2, "0")} at PC ${(ctx.registers.PC - 1)
-        .toString(16)
-        .padStart(4, "0")}`,
+        .padStart(2, "0")}`,
     );
-    return;
   }
 
   proc(ctx);
@@ -145,17 +143,9 @@ export function cpu_step(): boolean {
 
     fetch_instruction();
     emu_cycles(1);
-
-    if (!ctx.current_instruction) {
-      console.log(
-        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
-      );
-      return false;
-    }
-
     fetch_data(ctx);
 
-    if (CPU_DEBUG) {
+    if (CPU_DEBUG && ctx.current_instruction) {
       const flags = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
         ctx.registers.F & (1 << 6) ? "N" : "-"
       }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
@@ -169,8 +159,8 @@ export function cpu_step(): boolean {
           pc,
           instruction_name(ctx.current_instruction.type),
           ctx.current_opcode,
-          bus_read(pc + 1),
-          bus_read(pc + 2),
+          bus_read((pc + 1) & 0xffff),
+          bus_read((pc + 2) & 0xffff),
           ctx.registers.A,
           flags,
           ctx.registers.B,
@@ -181,6 +171,13 @@ export function cpu_step(): boolean {
           ctx.registers.L,
         ),
       );
+    }
+
+    if (ctx.current_instruction === null) {
+      console.log(
+        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
+      );
+      return false;
     }
 
     dbg_update();
@@ -207,8 +204,9 @@ export function cpu_step(): boolean {
   return true;
 }
 
+
 export function cpu_ie_register(): number {
-  return ctx.ie_register;
+  return ctx.ie_register & 0xff;
 }
 
 export function cpu_set_ie_register(value: number): void {
@@ -220,7 +218,7 @@ export function cpu_get_registers(): cpu_registers {
 }
 
 export function cpu_get_int_flags(): number {
-  return ctx.int_flags;
+  return ctx.int_flags & 0xff;
 }
 
 export function cpu_set_int_flags(value: number): void {
@@ -232,7 +230,7 @@ export function cpu_get_context(): cpu_context {
 }
 
 export function cpu_request_interrupt(interrupt: number): void {
-  ctx.int_flags |= interrupt;
+  ctx.int_flags = (ctx.int_flags | interrupt) & 0xff;
 }
 
 export {

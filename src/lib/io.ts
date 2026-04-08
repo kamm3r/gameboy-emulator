@@ -4,7 +4,7 @@ import { cpu_get_int_flags, cpu_set_int_flags } from "@/lib/cpu";
 import { gamepad_get_output, gamepad_set_sel } from "@/lib/gamepad";
 import { lcd_read, lcd_write } from "@/lib/lcd";
 
-const serial_data: number[] = [0, 0];
+const serialData = new Uint8Array(2);
 
 export function io_read(address: number): number {
   if (address === 0xff00) {
@@ -12,19 +12,15 @@ export function io_read(address: number): number {
   }
 
   if (address === 0xff01) {
-    return serial_data[0];
+    return serialData[0];
   }
 
-  if (BETWEEN(address, 0xff02, 0xff03)) {
-    return serial_data[address - 0xff02];
+  if (address === 0xff02) {
+    return serialData[1];
   }
 
   if (BETWEEN(address, 0xff04, 0xff07)) {
     return timer_read(address);
-  }
-
-  if (BETWEEN(address, 0xff08, 0xff0f)) {
-    return 0;
   }
 
   if (address === 0xff0f) {
@@ -32,38 +28,38 @@ export function io_read(address: number): number {
   }
 
   if (BETWEEN(address, 0xff10, 0xff3f)) {
+    // ignore sound
     return 0;
   }
 
-  if (BETWEEN(address, 0xff40, 0xff4f)) {
+  if (BETWEEN(address, 0xff40, 0xff4b)) {
     return lcd_read(address);
   }
 
-  if (BETWEEN(address, 0xff50, 0xff7f)) {
-    return 0;
-  }
-
-  console.log(`UNSUPPORTED bus_read(${address.toString(16)})\n`);
+  console.log(`UNSUPPORTED bus_read(${address.toString(16).padStart(4, "0")})`);
   return 0;
 }
 
 export function io_write(address: number, value: number): void {
+  value &= 0xff;
+
   if (address === 0xff00) {
     gamepad_set_sel(value);
     return;
   }
 
-  if (BETWEEN(address, 0xff01, 0xff03)) {
-    serial_data[address - 0xff01] = value;
+  if (address === 0xff01) {
+    serialData[0] = value;
+    return;
+  }
+
+  if (address === 0xff02) {
+    serialData[1] = value;
     return;
   }
 
   if (BETWEEN(address, 0xff04, 0xff07)) {
     timer_write(address, value);
-    return;
-  }
-
-  if (BETWEEN(address, 0xff08, 0xff0f)) {
     return;
   }
 
@@ -73,17 +69,14 @@ export function io_write(address: number, value: number): void {
   }
 
   if (BETWEEN(address, 0xff10, 0xff3f)) {
+    // ignore sound
     return;
   }
 
-  if (BETWEEN(address, 0xff40, 0xff4f)) {
+  if (BETWEEN(address, 0xff40, 0xff4b)) {
     lcd_write(address, value);
     return;
   }
 
-  if (BETWEEN(address, 0xff50, 0xff7f)) {
-    return;
-  }
-
-  console.log(`UNSUPPORTED bus_write(${address.toString(16)})\n`);
+  console.log(`UNSUPPORTED bus_write(${address.toString(16).padStart(4, "0")})`);
 }
