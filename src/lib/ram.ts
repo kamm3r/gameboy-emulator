@@ -1,13 +1,13 @@
 import { formatter } from "@/lib/common";
 
 export type ram_context = {
-  wram: number[];
-  hram: number[];
+  wram: Uint8Array;
+  hram: Uint8Array;
 };
 
 const ctx: ram_context = {
-  wram: new Array(0x2000).fill(0),
-  hram: new Array(0x80).fill(0),
+  wram: new Uint8Array(0x2000),
+  hram: new Uint8Array(0x80),
 };
 
 export function wram_read(address: number): number {

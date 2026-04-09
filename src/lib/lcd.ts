@@ -1,7 +1,6 @@
 import { dma_start } from "@/lib/dma";
 
-export type LcdContext = {
-  // registers
+export type lcd_context = {
   lcdc: number;
   lcds: number;
   scroll_y: number;
@@ -14,7 +13,6 @@ export type LcdContext = {
   win_y: number;
   win_x: number;
 
-  // derived palette colors
   bg_colors: [number, number, number, number];
   sp1_colors: [number, number, number, number];
   sp2_colors: [number, number, number, number];
@@ -27,7 +25,7 @@ const colorsDefault: [number, number, number, number] = [
   0xff000000,
 ];
 
-const ctx: LcdContext = {
+const ctx: lcd_context = {
   lcdc: 0x91,
   lcds: 0,
   scroll_y: 0,
@@ -65,7 +63,7 @@ export function lcd_init(): void {
   }
 }
 
-export function lcd_get_context(): LcdContext {
+export function lcd_get_context(): lcd_context {
   return ctx;
 }
 
@@ -105,15 +103,15 @@ export function lcd_read(address: number): number {
 
 function update_palette(paletteData: number, pal: number): void {
   let p_colors = ctx.bg_colors;
-  
-   switch(pal) {
-        case 1:
-            p_colors = ctx.sp1_colors;
-            break;
-        case 2:
-            p_colors = ctx.sp2_colors;
-            break;
-    }
+
+  switch (pal) {
+    case 1:
+      p_colors = ctx.sp1_colors;
+      break;
+    case 2:
+      p_colors = ctx.sp2_colors;
+      break;
+  }
 
   p_colors[0] = colorsDefault[paletteData & 0b11];
   p_colors[1] = colorsDefault[(paletteData >> 2) & 0b11];

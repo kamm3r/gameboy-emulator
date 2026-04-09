@@ -5,11 +5,11 @@ import { bus_read } from "./bus";
 export const XRES = 160;
 export const YRES = 144;
 
-const FS_TILE = 0;
-const FS_DATA0 = 1;
-const FS_DATA1 = 2;
-const FS_IDLE = 3;
-const FS_PUSH = 4;
+export const FS_TILE = 0;
+export const FS_DATA0 = 1;
+export const FS_DATA1 = 2;
+export const FS_IDLE = 3;
+export const FS_PUSH = 4;
 
 function LCDC_WIN_ENABLE(): boolean {
   return (lcd_get_context().lcdc & 0x20) !== 0;
@@ -40,17 +40,21 @@ function LCDC_BGW_DATA_AREA(): number {
 }
 
 export function window_visible(): boolean {
-  return LCDC_WIN_ENABLE() && lcd_get_context().win_x >= 0 &&
-    lcd_get_context().win_x <= 166 && lcd_get_context().win_y >= 0 &&
-    lcd_get_context().win_y < YRES;
+  const lcd = lcd_get_context();
+  return (
+    LCDC_WIN_ENABLE() &&
+    lcd.win_x <= 166 &&
+    lcd.win_y < YRES
+  );
 }
 
 export function pixel_fifo_push(value: number): void {
   const ppu = ppu_get_context();
-  const next = { value, next: null as { value: number; next: null } | null };
+  const next = { value, next: null as null | typeof ppu.pfc.pixel_fifo.head };
 
   if (!ppu.pfc.pixel_fifo.head) {
-    ppu.pfc.pixel_fifo.head = ppu.pfc.pixel_fifo.tail = next;
+    ppu.pfc.pixel_fifo.head = next;
+    ppu.pfc.pixel_fifo.tail = next;
   } else {
     ppu.pfc.pixel_fifo.tail!.next = next;
     ppu.pfc.pixel_fifo.tail = next;
@@ -62,14 +66,17 @@ export function pixel_fifo_push(value: number): void {
 export function pixel_fifo_pop(): number {
   const ppu = ppu_get_context();
 
-  if (ppu.pfc.pixel_fifo.size <= 0) {
-    console.error("ERR IN PIXEL FIFO!");
+  if (ppu.pfc.pixel_fifo.size <= 0 || !ppu.pfc.pixel_fifo.head) {
     throw new Error("pixel_fifo underflow");
   }
 
-  const popped = ppu.pfc.pixel_fifo.head!;
+  const popped = ppu.pfc.pixel_fifo.head;
   ppu.pfc.pixel_fifo.head = popped.next;
   ppu.pfc.pixel_fifo.size--;
+
+  if (ppu.pfc.pixel_fifo.size === 0) {
+    ppu.pfc.pixel_fifo.tail = null;
+  }
 
   return popped.value;
 }
@@ -82,8 +89,8 @@ export function fetch_sprite_pixels(
   const ppu = ppu_get_context();
 
   for (let i = 0; i < ppu.fetched_entry_count; i++) {
-    const sp_x = (ppu.fetched_entries[i].x - 8) +
-      (lcd_get_context().scroll_x % 8);
+    const sprite = ppu.fetched_entries[i];
+    const sp_x = (sprite.x - 8) + (lcd_get_context().scroll_x % 8);
 
     if (sp_x + 8 < ppu.pfc.fifo_x) {
       continue;
@@ -97,28 +104,25 @@ export function fetch_sprite_pixels(
 
     bit = 7 - offset;
 
-    if (ppu.fetched_entries[i].f_x_flip) {
+    if (sprite.f_x_flip) {
       bit = offset;
     }
 
     const hi = (ppu.pfc.fetch_entry_data[i * 2] & (1 << bit)) ? 1 : 0;
     const lo =
-      ((ppu.pfc.fetch_entry_data[(i * 2) + 1] & (1 << bit)) ? 1 : 0) << 1;
+      ((ppu.pfc.fetch_entry_data[i * 2 + 1] & (1 << bit)) ? 1 : 0) << 1;
 
-    const bg_priority = ppu.fetched_entries[i].f_bgp;
+    const spriteColorId = hi | lo;
 
-    if (!(hi | lo)) {
+    if (!spriteColorId) {
       continue;
     }
 
-    if (!bg_priority || bg_color === 0) {
-      color = ppu.fetched_entries[i].f_pn
-        ? lcd_get_context().sp2_colors[hi | lo]
-        : lcd_get_context().sp1_colors[hi | lo];
-
-      if (hi | lo) {
-        break;
-      }
+    if (!sprite.f_bgp || bg_color === 0) {
+      color = sprite.f_pn
+        ? lcd_get_context().sp2_colors[spriteColorId]
+        : lcd_get_context().sp1_colors[spriteColorId];
+      break;
     }
   }
 
@@ -166,10 +170,21 @@ export function pipeline_load_sprite_tile(): void {
 
     if (
       (sp_x >= ppu.pfc.fetch_x && sp_x < ppu.pfc.fetch_x + 8) ||
-      ((sp_x + 8) >= ppu.pfc.fetch_x && (sp_x + 8) < ppu.pfc.fetch_x + 8)
+      (sp_x + 8 >= ppu.pfc.fetch_x && sp_x + 8 < ppu.pfc.fetch_x + 8)
     ) {
-      ppu.fetched_entries[ppu.fetched_entry_count++] =
-        le.entry as unknown as fetched_sprite;
+      const attr = le.entry.attributes;
+
+      const sprite: fetched_sprite = {
+        x: le.entry.x,
+        y: le.entry.y,
+        tile: le.entry.tile,
+        f_x_flip: (attr & 0x20) ? 1 : 0,
+        f_y_flip: (attr & 0x40) ? 1 : 0,
+        f_pn: (attr & 0x10) ? 1 : 0,
+        f_bgp: (attr & 0x80) ? 1 : 0,
+      };
+
+      ppu.fetched_entries[ppu.fetched_entry_count++] = sprite;
     }
 
     le = le.next;
@@ -198,34 +213,30 @@ export function pipeline_load_sprite_data(offset: number): void {
       tile_index &= ~1;
     }
 
-    ppu.pfc.fetch_entry_data[(i * 2) + offset] =
-      bus_read(0x8000 + (tile_index * 16) + ty + offset);
+    ppu.pfc.fetch_entry_data[i * 2 + offset] =
+      bus_read(0x8000 + tile_index * 16 + ty + offset);
   }
 }
 
 export function pipeline_load_window_tile(): void {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
   if (!window_visible()) {
     return;
   }
 
-  const window_y = lcd_get_context().win_y;
-
   if (
-    ppu.pfc.fetch_x + 7 >= lcd_get_context().win_x &&
-    ppu.pfc.fetch_x + 7 < lcd_get_context().win_x + YRES + 14
+    ppu.pfc.fetch_x + 7 >= lcd.win_x &&
+    ppu.pfc.fetch_x + 7 < lcd.win_x + YRES + 14
   ) {
-    if (
-      lcd_get_context().ly >= window_y &&
-      lcd_get_context().ly < window_y + XRES
-    ) {
+    if (lcd.ly >= lcd.win_y && lcd.ly < lcd.win_y + XRES) {
       const w_tile_y = Math.floor(ppu.window_line / 8);
 
       ppu.pfc.bgw_fetch_data[0] = bus_read(
         LCDC_WIN_MAP_AREA() +
-          Math.floor((ppu.pfc.fetch_x + 7 - lcd_get_context().win_x) / 8) +
-          (w_tile_y * 32),
+          Math.floor((ppu.pfc.fetch_x + 7 - lcd.win_x) / 8) +
+          w_tile_y * 32,
       );
 
       if (LCDC_BGW_DATA_AREA() === 0x8800) {
@@ -239,14 +250,14 @@ export function pipeline_fetch(): void {
   const ppu = ppu_get_context();
 
   switch (ppu.pfc.cur_fetch_state) {
-    case FS_TILE: {
+    case FS_TILE:
       ppu.fetched_entry_count = 0;
 
       if (LCDC_BGW_ENABLE()) {
         ppu.pfc.bgw_fetch_data[0] = bus_read(
           LCDC_BG_MAP_AREA() +
             Math.floor(ppu.pfc.map_x / 8) +
-            (Math.floor(ppu.pfc.map_y / 8) * 32),
+            Math.floor(ppu.pfc.map_y / 8) * 32,
         );
 
         if (LCDC_BGW_DATA_AREA() === 0x8800) {
@@ -263,55 +274,51 @@ export function pipeline_fetch(): void {
       ppu.pfc.cur_fetch_state = FS_DATA0;
       ppu.pfc.fetch_x += 8;
       break;
-    }
 
-    case FS_DATA0: {
+    case FS_DATA0:
       ppu.pfc.bgw_fetch_data[1] = bus_read(
         LCDC_BGW_DATA_AREA() +
-          (ppu.pfc.bgw_fetch_data[0] * 16) +
+          ppu.pfc.bgw_fetch_data[0] * 16 +
           ppu.pfc.tile_y,
       );
 
       pipeline_load_sprite_data(0);
       ppu.pfc.cur_fetch_state = FS_DATA1;
       break;
-    }
 
-    case FS_DATA1: {
+    case FS_DATA1:
       ppu.pfc.bgw_fetch_data[2] = bus_read(
         LCDC_BGW_DATA_AREA() +
-          (ppu.pfc.bgw_fetch_data[0] * 16) +
-          ppu.pfc.tile_y + 1,
+          ppu.pfc.bgw_fetch_data[0] * 16 +
+          ppu.pfc.tile_y +
+          1,
       );
 
       pipeline_load_sprite_data(1);
       ppu.pfc.cur_fetch_state = FS_IDLE;
       break;
-    }
 
-    case FS_IDLE: {
+    case FS_IDLE:
       ppu.pfc.cur_fetch_state = FS_PUSH;
       break;
-    }
 
-    case FS_PUSH: {
+    case FS_PUSH:
       if (pipeline_fifo_add()) {
         ppu.pfc.cur_fetch_state = FS_TILE;
       }
       break;
-    }
   }
 }
 
 export function pipeline_push_pixel(): void {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
   if (ppu.pfc.pixel_fifo.size > 8) {
     const pixel_data = pixel_fifo_pop();
 
-    if (ppu.pfc.line_x >= (lcd_get_context().scroll_x % 8)) {
-      ppu.video_buffer[ppu.pfc.pushed_x + (lcd_get_context().ly * XRES)] =
-        pixel_data;
+    if (ppu.pfc.line_x >= (lcd.scroll_x % 8)) {
+      ppu.video_buffer[ppu.pfc.pushed_x + lcd.ly * XRES] = pixel_data;
       ppu.pfc.pushed_x++;
     }
 
@@ -321,11 +328,11 @@ export function pipeline_push_pixel(): void {
 
 export function pipeline_process(): void {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
-  ppu.pfc.map_y = lcd_get_context().ly + lcd_get_context().scroll_y;
-  ppu.pfc.map_x = ppu.pfc.fetch_x + lcd_get_context().scroll_x;
-  ppu.pfc.tile_y =
-    ((lcd_get_context().ly + lcd_get_context().scroll_y) % 8) * 2;
+  ppu.pfc.map_y = lcd.ly + lcd.scroll_y;
+  ppu.pfc.map_x = ppu.pfc.fetch_x + lcd.scroll_x;
+  ppu.pfc.tile_y = ((lcd.ly + lcd.scroll_y) % 8) * 2;
 
   if (!(ppu.line_ticks & 1)) {
     pipeline_fetch();

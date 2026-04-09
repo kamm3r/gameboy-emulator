@@ -4,17 +4,27 @@ import { ppu_get_context } from "@/lib/ppu";
 import { gamepad_get_state } from "@/lib/gamepad";
 import { SCREEN_WIDTH, SCREEN_HEIGHT, XRES, YRES } from "@/lib/common";
 
-let mainCanvas: HTMLCanvasElement;
-let mainCtx: CanvasRenderingContext2D;
+type ui_context = {
+  mainCanvas: HTMLCanvasElement | null;
+  mainCtx: CanvasRenderingContext2D | null;
+  debugCanvas: HTMLCanvasElement | null;
+  debugCtx: CanvasRenderingContext2D | null;
+  scale: number;
+  initialized: boolean;
+};
 
-let debugCanvas: HTMLCanvasElement;
-let debugCtx: CanvasRenderingContext2D;
-
-const scale = 4;
+const ui: ui_context = {
+  mainCanvas: null,
+  mainCtx: null,
+  debugCanvas: null,
+  debugCtx: null,
+  scale: 4,
+  initialized: false,
+};
 
 const tileColors = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
 
-function argbToCss(color: number): string {
+function argb_to_css(color: number): string {
   const a = ((color >>> 24) & 0xff) / 255;
   const r = (color >>> 16) & 0xff;
   const g = (color >>> 8) & 0xff;
@@ -22,80 +32,52 @@ function argbToCss(color: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
-function getOrCreateCanvas(
-  id: string,
-  width: number,
-  height: number,
-  title?: string,
-): HTMLCanvasElement {
-  let canvas = document.getElementById(id) as HTMLCanvasElement | null;
+export function ui_init(
+  mainCanvas: HTMLCanvasElement,
+  debugCanvas: HTMLCanvasElement,
+): void {
+  const mainCtx = mainCanvas.getContext("2d");
+  const debugCtx = debugCanvas.getContext("2d");
 
-  if (!canvas) {
-    const container = document.createElement("div");
-    container.style.display = "inline-block";
-    container.style.marginRight = "12px";
-
-    if (title) {
-      const label = document.createElement("div");
-      label.textContent = title;
-      label.style.fontFamily = "monospace";
-      label.style.marginBottom = "4px";
-      container.appendChild(label);
-    }
-
-    canvas = document.createElement("canvas");
-    canvas.id = id;
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.border = "1px solid #444";
-    canvas.style.imageRendering = "pixelated";
-
-    container.appendChild(canvas);
-    document.body.appendChild(container);
+  if (!mainCtx || !debugCtx) {
+    throw new Error("Failed to get canvas 2D context");
   }
 
-  return canvas;
-}
-
-export function ui_init(): void {
-  mainCanvas = getOrCreateCanvas(
-    "emu-screen",
-    SCREEN_WIDTH * scale,
-    SCREEN_HEIGHT * scale,
-    "Game",
-  );
-  debugCanvas = getOrCreateCanvas(
-    "emu-debug",
-    (16 * 8 * scale) + (16 * scale),
-    (32 * 8 * scale) + (64 * scale),
-    "Tiles",
-  );
-
-  const maybeMainCtx = mainCanvas.getContext("2d");
-  const maybeDebugCtx = debugCanvas.getContext("2d");
-
-  if (!maybeMainCtx || !maybeDebugCtx) {
-    throw new Error("Failed to get 2D canvas context");
-  }
-
-  mainCtx = maybeMainCtx;
-  debugCtx = maybeDebugCtx;
+  mainCanvas.width = SCREEN_WIDTH * ui.scale;
+  mainCanvas.height = SCREEN_HEIGHT * ui.scale;
+  debugCanvas.width = (16 * 8 * ui.scale) + (16 * ui.scale);
+  debugCanvas.height = (32 * 8 * ui.scale) + (64 * ui.scale);
 
   mainCtx.imageSmoothingEnabled = false;
   debugCtx.imageSmoothingEnabled = false;
 
+  ui.mainCanvas = mainCanvas;
+  ui.mainCtx = mainCtx;
+  ui.debugCanvas = debugCanvas;
+  ui.debugCtx = debugCtx;
+  ui.initialized = true;
+
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
-
-  console.log("UI INIT");
 }
 
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function ui_destroy(): void {
+  window.removeEventListener("keydown", onKeyDown);
+  window.removeEventListener("keyup", onKeyUp);
+
+  ui.mainCanvas = null;
+  ui.mainCtx = null;
+  ui.debugCanvas = null;
+  ui.debugCtx = null;
+  ui.initialized = false;
 }
 
 export function get_ticks(): number {
   return performance.now() | 0;
+}
+
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function fillRect(
@@ -106,7 +88,7 @@ function fillRect(
   h: number,
   color: number,
 ): void {
-  ctx.fillStyle = argbToCss(color);
+  ctx.fillStyle = argb_to_css(color >>> 0);
   ctx.fillRect(x, y, w, h);
 }
 
@@ -126,17 +108,19 @@ function display_tile(
       const lo = Number(Boolean(b2 & (1 << bit)));
       const color = hi | lo;
 
-      const px = x + ((7 - bit) * scale);
-      const py = y + ((tileY / 2) * scale);
+      const px = x + ((7 - bit) * ui.scale);
+      const py = y + ((tileY / 2) * ui.scale);
 
-      fillRect(debugCtx, px, py, scale, scale, tileColors[color]);
+      fillRect(ctx, px, py, ui.scale, ui.scale, tileColors[color]);
     }
   }
 }
 
 function update_dbg_window(): void {
-  debugCtx.fillStyle = "#111111";
-  debugCtx.fillRect(0, 0, debugCanvas.width, debugCanvas.height);
+  if (!ui.debugCtx || !ui.debugCanvas) return;
+
+  ui.debugCtx.fillStyle = "#111111";
+  ui.debugCtx.fillRect(0, 0, ui.debugCanvas.width, ui.debugCanvas.height);
 
   let xDraw = 0;
   let yDraw = 0;
@@ -144,26 +128,40 @@ function update_dbg_window(): void {
 
   const addr = 0x8000;
 
-  // 384 tiles, laid out in 24 x 16
   for (let y = 0; y < 24; y++) {
     for (let x = 0; x < 16; x++) {
-      display_tile(debugCtx, addr, tileNum, xDraw + (x * scale), yDraw + (y * scale));
-      xDraw += 8 * scale;
+      display_tile(
+        ui.debugCtx,
+        addr,
+        tileNum,
+        xDraw + (x * ui.scale),
+        yDraw + (y * ui.scale),
+      );
+      xDraw += 8 * ui.scale;
       tileNum++;
     }
 
-    yDraw += 8 * scale;
+    yDraw += 8 * ui.scale;
     xDraw = 0;
   }
 }
 
 export function ui_update(): void {
+  if (!ui.initialized || !ui.mainCtx) return;
+
   const videoBuffer = ppu_get_context().video_buffer;
 
   for (let lineNum = 0; lineNum < YRES; lineNum++) {
     for (let x = 0; x < XRES; x++) {
       const color = videoBuffer[x + (lineNum * XRES)];
-      fillRect(mainCtx, x * scale, lineNum * scale, scale, scale, color);
+      fillRect(
+        ui.mainCtx,
+        x * ui.scale,
+        lineNum * ui.scale,
+        ui.scale,
+        ui.scale,
+        color,
+      );
     }
   }
 
@@ -201,14 +199,18 @@ function ui_on_key(down: boolean, keyCode: string): void {
   }
 }
 
+function shouldPreventDefault(code: string): boolean {
+  return (
+    code === "Tab" ||
+    code === "ArrowUp" ||
+    code === "ArrowDown" ||
+    code === "ArrowLeft" ||
+    code === "ArrowRight"
+  );
+}
+
 function onKeyDown(e: KeyboardEvent): void {
-  if (
-    e.code === "Tab" ||
-    e.code === "ArrowUp" ||
-    e.code === "ArrowDown" ||
-    e.code === "ArrowLeft" ||
-    e.code === "ArrowRight"
-  ) {
+  if (shouldPreventDefault(e.code)) {
     e.preventDefault();
   }
 
@@ -216,13 +218,7 @@ function onKeyDown(e: KeyboardEvent): void {
 }
 
 function onKeyUp(e: KeyboardEvent): void {
-  if (
-    e.code === "Tab" ||
-    e.code === "ArrowUp" ||
-    e.code === "ArrowDown" ||
-    e.code === "ArrowLeft" ||
-    e.code === "ArrowRight"
-  ) {
+  if (shouldPreventDefault(e.code)) {
     e.preventDefault();
   }
 
@@ -230,16 +226,7 @@ function onKeyUp(e: KeyboardEvent): void {
 }
 
 export function ui_handle_events(): void {
-  // No-op in browser version.
-  // Events are handled through window event listeners.
-  // You can keep this function so existing emulator code doesn't need to change.
-
-  if (document.visibilityState === "hidden") {
-    // optional behavior could go here
-  }
-
   if (emu_get_context().die) {
-    window.removeEventListener("keydown", onKeyDown);
-    window.removeEventListener("keyup", onKeyUp);
+    ui_destroy();
   }
 }

@@ -1,9 +1,8 @@
-import { BETWEEN, formatter, NO_IMPL, stringCopyLimit } from "@/lib/common";
-import fs from "node:fs";
+import { BETWEEN, formatter } from "@/lib/common";
 
 type rom_header = {
-  entry: Buffer;
-  logo: Buffer;
+  entry: Uint8Array;
+  logo: Uint8Array;
 
   title: string;
   new_lic_code: number;
@@ -21,20 +20,20 @@ type rom_header = {
 type cartridge_context = {
   filename: string;
   rom_size: number;
-  rom_data: Buffer;
+  rom_data: Uint8Array;
   header: rom_header;
 
   ram_enabled: boolean;
   ram_banking: boolean;
 
-  rom_bank_x: Buffer;
+  rom_bank_x: Uint8Array;
   banking_mode: number;
 
   rom_bank_value: number;
   ram_bank_value: number;
 
-  ram_bank: Buffer | null;
-  ram_banks: Array<Buffer | null>;
+  ram_bank: Uint8Array | null;
+  ram_banks: Array<Uint8Array | null>;
 
   battery: boolean;
   need_save: boolean;
@@ -43,10 +42,10 @@ type cartridge_context = {
 const ctx: cartridge_context = {
   filename: "",
   rom_size: 0,
-  rom_data: Buffer.alloc(0),
+  rom_data: new Uint8Array(0),
   header: {
-    entry: Buffer.alloc(4),
-    logo: Buffer.alloc(0x30),
+    entry: new Uint8Array(4),
+    logo: new Uint8Array(0x30),
     title: "",
     new_lic_code: 0,
     sgb_flag: 0,
@@ -63,14 +62,14 @@ const ctx: cartridge_context = {
   ram_enabled: false,
   ram_banking: false,
 
-  rom_bank_x: Buffer.alloc(0),
+  rom_bank_x: new Uint8Array(0),
   banking_mode: 0,
 
   rom_bank_value: 1,
   ram_bank_value: 0,
 
   ram_bank: null,
-  ram_banks: new Array<Buffer | null>(16).fill(null),
+  ram_banks: new Array<Uint8Array | null>(16).fill(null),
 
   battery: false,
   need_save: false,
@@ -178,31 +177,100 @@ const LIC_CODE: Record<number, string> = {
   0xa4: "Konami (Yu-Gi-Oh!)",
 };
 
-function parse_rom_header(rom: Buffer): rom_header {
+function read_u8(data: Uint8Array, offset: number): number {
+  return data[offset] ?? 0;
+}
+
+function read_u16_be(data: Uint8Array, offset: number): number {
+  return ((data[offset] ?? 0) << 8) | (data[offset + 1] ?? 0);
+}
+
+function read_ascii(data: Uint8Array, start: number, end: number): string {
+  let out = "";
+
+  for (let i = start; i < end; i++) {
+    const c = data[i] ?? 0;
+    if (c === 0) break;
+    out += String.fromCharCode(c);
+  }
+
+  return out;
+}
+
+function parse_rom_header(rom: Uint8Array): rom_header {
   const base = 0x0100;
 
   return {
-    entry: rom.subarray(base + 0x00, base + 0x04),
-    logo: rom.subarray(base + 0x04, base + 0x34),
-    title: rom
-      .toString("ascii", base + 0x34, base + 0x44)
-      .replace(/\x00.*$/, ""),
-    new_lic_code: rom.readUInt16BE(base + 0x44),
-    sgb_flag: rom.readUInt8(base + 0x46),
-    type: rom.readUInt8(base + 0x47),
-    rom_size: rom.readUInt8(base + 0x48),
-    ram_size: rom.readUInt8(base + 0x49),
-    dest_code: rom.readUInt8(base + 0x4a),
-    lic_code: rom.readUInt8(base + 0x4b),
-    version: rom.readUInt8(base + 0x4c),
-    checksum: rom.readUInt8(base + 0x4d),
-    global_checksum: rom.readUInt16BE(base + 0x4e),
+    entry: rom.slice(base + 0x00, base + 0x04),
+    logo: rom.slice(base + 0x04, base + 0x34),
+    title: read_ascii(rom, base + 0x34, base + 0x44),
+    new_lic_code: read_u16_be(rom, base + 0x44),
+    sgb_flag: read_u8(rom, base + 0x46),
+    type: read_u8(rom, base + 0x47),
+    rom_size: read_u8(rom, base + 0x48),
+    ram_size: read_u8(rom, base + 0x49),
+    dest_code: read_u8(rom, base + 0x4a),
+    lic_code: read_u8(rom, base + 0x4b),
+    version: read_u8(rom, base + 0x4c),
+    checksum: read_u8(rom, base + 0x4d),
+    global_checksum: read_u16_be(rom, base + 0x4e),
   };
+}
+
+function battery_key(): string {
+  return `gb_battery_${ctx.filename || ctx.header.title || "default"}`;
+}
+
+function get_rom_bank_count(): number {
+  return Math.max(1, ctx.rom_data.length >>> 14);
+}
+
+function normalize_mbc1_bank(bank: number): number {
+  const romBanks = get_rom_bank_count();
+  let out = bank % romBanks;
+
+  if ((out & 0x1f) === 0) {
+    out += 1;
+  }
+
+  out %= romBanks;
+  return out;
+}
+
+function update_rom_bank(): void {
+  let bank = ctx.rom_bank_value & 0x1f;
+  if (bank === 0) bank = 1;
+
+  if (!ctx.ram_banking) {
+    bank |= (ctx.ram_bank_value & 0x03) << 5;
+  }
+
+  bank = normalize_mbc1_bank(bank);
+
+  const start = 0x4000 * bank;
+  const end = start + 0x4000;
+  ctx.rom_bank_x = ctx.rom_data.slice(start, end);
+}
+
+function get_ram_bank_count(): number {
+  switch (ctx.header.ram_size) {
+    case 0x02:
+      return 1;
+    case 0x03:
+      return 4;
+    case 0x04:
+      return 16;
+    case 0x05:
+      return 8;
+    default:
+      return 0;
+  }
 }
 
 export function cart_need_save(): boolean {
   return ctx.need_save;
 }
+
 export function cart_mbc1(): boolean {
   return BETWEEN(ctx.header.type, 1, 3);
 }
@@ -212,60 +280,57 @@ export function cart_battery(): boolean {
 }
 
 export function cart_lic_name(): string {
-  if (ctx.header.new_lic_code <= 0xa4) {
-    return LIC_CODE[ctx.header.lic_code];
+  if (ctx.header.lic_code === 0x33) {
+    return LIC_CODE[ctx.header.new_lic_code] ?? "UNKNOWN";
   }
-  return "UNKNOWN";
+
+  return LIC_CODE[ctx.header.lic_code] ?? "UNKNOWN";
 }
 
 export function cart_type_name(): string {
   if (ctx.header.type <= 0x22) {
-    return ROM_TYPES[ctx.header.type];
+    return ROM_TYPES[ctx.header.type] ?? "UNKNOWN";
   }
+
   return "UNKNOWN";
 }
 
 export function cart_setup_banking(): void {
   for (let i = 0; i < 16; ++i) {
     ctx.ram_banks[i] = null;
-
-    if (
-      (ctx.header?.ram_size == 2 && i == 0) ||
-      (ctx.header?.ram_size == 3 && i < 4) ||
-      (ctx.header?.ram_size == 4 && i < 16) ||
-      (ctx.header?.ram_size == 5 && i < 8)
-    ) {
-      ctx.ram_banks![i] = Buffer.alloc(0x2000);
-    }
   }
+
+  const ramBanks = get_ram_bank_count();
+  for (let i = 0; i < ramBanks; ++i) {
+    ctx.ram_banks[i] = new Uint8Array(0x2000);
+  }
+
   ctx.ram_bank = ctx.ram_banks[0];
-  ctx.rom_bank_x = ctx.rom_data.subarray(0x4000, 0x8000); //rom bank 1
+  update_rom_bank();
 }
 
-export function cart_load(cart: string): boolean {
-  ctx.filename = cart;
+export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
+  ctx.filename = filename;
+  ctx.rom_size = data.length;
+  ctx.rom_data = new Uint8Array(data);
 
-  let fileData: Buffer;
-
-  try {
-    fileData = fs.readFileSync(cart);
-  } catch (err) {
-    console.assert(false, `Failed to open: \n ${cart} \n  ${err}`);
-    return false;
-  }
-
-  console.log(`Opened: \n ${ctx.filename}`);
-  ctx.rom_size = fileData.length;
-  ctx.rom_data = fileData;
-
-  ctx.header = parse_rom_header(ctx.rom_data)
+  ctx.header = parse_rom_header(ctx.rom_data);
   ctx.battery = cart_battery();
   ctx.need_save = false;
+  ctx.ram_enabled = false;
+  ctx.ram_banking = false;
+  ctx.rom_bank_value = 1;
+  ctx.ram_bank_value = 0;
+  ctx.banking_mode = 0;
+  ctx.ram_bank = null;
+  ctx.rom_bank_x = new Uint8Array(0);
+  ctx.ram_banks.fill(null);
 
-  console.log("Cartridge Loaded:\n");
-  console.log(formatter("\t Title    : %s\n", ctx.header.title));
+  console.log(`Opened: ${ctx.filename}`);
+  console.log("Cartridge Loaded:");
+  console.log(formatter("\t Title    : %s", ctx.header.title));
   console.log(
-    formatter("\t Type     : %2.2X (%s)\n", ctx.header.type, cart_type_name()),
+    formatter("\t Type     : %2.2X (%s)", ctx.header.type, cart_type_name()),
   );
   console.log(formatter("\t ROM Size : %d KB", 32 << ctx.header.rom_size));
   console.log(formatter("\t RAM Size : %2.2X", ctx.header.ram_size));
@@ -278,13 +343,14 @@ export function cart_load(cart: string): boolean {
 
   let checksum = 0;
   for (let address = 0x0134; address <= 0x014c; ++address) {
-    checksum = checksum - ctx.rom_data[address] - 1;
+    checksum = checksum - (ctx.rom_data[address] ?? 0) - 1;
   }
+
   console.log(
     formatter(
-      "\t Checksum : %2.2X (%s)\n",
+      "\t Checksum : %2.2X (%s)",
       ctx.header.checksum,
-      checksum & 0xff ? "PASSED" : "FAILED",
+      ((checksum & 0xff) === ctx.header.checksum) ? "PASSED" : "FAILED",
     ),
   );
 
@@ -296,109 +362,131 @@ export function cart_load(cart: string): boolean {
 }
 
 export function cart_battery_load(): void {
-  if (!ctx.ram_bank) {
-    return;
-  }
+  const ramBanks = get_ram_bank_count();
+  if (ramBanks === 0) return;
 
-  const fn = `${ctx.filename}.battery`;
+  const raw = localStorage.getItem(battery_key());
+  if (!raw) return;
 
-  let fp: Buffer;
   try {
-    fp = fs.readFileSync(fn);
-  } catch {
-    console.error(`FAILED TO OPEN: ${fn}`);
-    return;
-  }
+    const parsed = JSON.parse(raw) as number[][];
+    if (!Array.isArray(parsed)) return;
 
-  fp.copy(ctx.ram_bank, 0, 0, Math.min(0x2000, fp.length));
+    for (let bank = 0; bank < Math.min(ramBanks, parsed.length); bank++) {
+      const dst = ctx.ram_banks[bank];
+      const src = parsed[bank];
+      if (!dst || !Array.isArray(src)) continue;
+
+      for (let i = 0; i < Math.min(0x2000, src.length); i++) {
+        dst[i] = src[i] & 0xff;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load battery save", err);
+  }
 }
 
 export function cart_battery_save(): void {
-  if (!ctx.ram_bank) {
-    return;
-  }
-
-  const fn = `${ctx.filename}.battery`;
+  const ramBanks = get_ram_bank_count();
+  if (ramBanks === 0) return;
 
   try {
-    fs.writeFileSync(fn, ctx.ram_bank.subarray(0, 0x2000));
-  } catch {
-    console.error(`FAILED TO OPEN: ${fn}`);
+    const dump: number[][] = [];
+
+    for (let bank = 0; bank < ramBanks; bank++) {
+      dump.push(Array.from(ctx.ram_banks[bank] ?? new Uint8Array(0x2000)));
+    }
+
+    localStorage.setItem(battery_key(), JSON.stringify(dump));
+    ctx.need_save = false;
+  } catch (err) {
+    console.error("Failed to save battery RAM", err);
   }
 }
 
 export function cart_read(address: number): number {
-  if(!cart_mbc1() || address< 0x4000){
-    return ctx.rom_data[address];
+  address &= 0xffff;
+
+  if (!cart_mbc1()) {
+    return ctx.rom_data[address] ?? 0xff;
   }
-  if((address & 0xe000) === 0xa000){
-    if (!ctx.ram_enabled) {
+
+  if (address < 0x4000) {
+    return ctx.rom_data[address] ?? 0xff;
+  }
+
+  if (address >= 0x4000 && address < 0x8000) {
+    return ctx.rom_bank_x[address - 0x4000] ?? 0xff;
+  }
+
+  if (address >= 0xa000 && address < 0xc000) {
+    if (!ctx.ram_enabled || !ctx.ram_bank) {
       return 0xff;
     }
 
-    if (!ctx.ram_bank) {
-      return 0xff;
-    }
-
-    return ctx.ram_bank[address - 0xa000];
+    return ctx.ram_bank[address - 0xa000] ?? 0xff;
   }
-  return ctx.rom_bank_x[address - 0x4000];
+
+  return 0xff;
 }
 
 export function cart_write(address: number, value: number): void {
-    if (!cart_mbc1()) {
+  address &= 0xffff;
+  value &= 0xff;
+
+  if (!cart_mbc1()) {
     return;
   }
 
   if (address < 0x2000) {
-    ctx.ram_enabled = (value & 0xf) === 0xa;
+    ctx.ram_enabled = (value & 0x0f) === 0x0a;
+    return;
   }
 
-  if ((address & 0xe000) === 0x2000) {
-    if (value === 0) {
-      value = 1;
-    }
+  if (address >= 0x2000 && address < 0x4000) {
+    let bank = value & 0x1f;
+    if (bank === 0) bank = 1;
 
-    value &= 0b11111;
-
-    ctx.rom_bank_value = value;
-    ctx.rom_bank_x = ctx.rom_data.subarray(
-      0x4000 * ctx.rom_bank_value,
-      0x4000 * (ctx.rom_bank_value + 1)
-    );
+    ctx.rom_bank_value = bank;
+    update_rom_bank();
+    return;
   }
 
-  if ((address & 0xe000) === 0x4000) {
-    ctx.ram_bank_value = value & 0b11;
+  if (address >= 0x4000 && address < 0x6000) {
+    ctx.ram_bank_value = value & 0x03;
 
     if (ctx.ram_banking) {
       if (cart_need_save()) {
         cart_battery_save();
       }
 
-      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value];
+      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
     }
+
+    update_rom_bank();
+    return;
   }
 
-  if ((address & 0xe000) === 0x6000) {
+  if (address >= 0x6000 && address < 0x8000) {
     ctx.banking_mode = value & 1;
-    ctx.ram_banking = !!ctx.banking_mode;
+    ctx.ram_banking = ctx.banking_mode === 1;
 
     if (ctx.ram_banking) {
       if (cart_need_save()) {
         cart_battery_save();
       }
 
-      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value];
+      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
+    } else {
+      ctx.ram_bank = ctx.ram_banks[0] ?? null;
     }
+
+    update_rom_bank();
+    return;
   }
 
-  if ((address & 0xe000) === 0xa000) {
-    if (!ctx.ram_enabled) {
-      return;
-    }
-
-    if (!ctx.ram_bank) {
+  if (address >= 0xa000 && address < 0xc000) {
+    if (!ctx.ram_enabled || !ctx.ram_bank) {
       return;
     }
 
