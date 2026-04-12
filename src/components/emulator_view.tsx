@@ -1,79 +1,74 @@
 import { useEffect, useRef } from "react";
-import { ui_init, ui_destroy, ui_update } from "@/lib/ui";
 import {
-  emu_init,
-  emu_load_rom,
+  emu_pause,
+  emu_resume,
   emu_start,
   emu_stop,
-  emu_run_chunk,
-  emu_get_frame,
 } from "@/lib/emu";
+import { ppu_get_context } from "@/lib/ppu";
+import { useEmu } from "@/hooks/use_emu";
 
-type Props = {
-  romData: Uint8Array | null;
-  romName: string;
+type emulator_view_props = {
+  rom_name: string;
 };
 
-export function EmulatorView({ romData, romName }: Props) {
-  const mainRef = useRef<HTMLCanvasElement | null>(null);
-  const debugRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const prevFrameRef = useRef(-1);
+export function EmulatorView({
+  rom_name,
+}: emulator_view_props) {
+  const emu = useEmu();
+  const canvas_ref = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    if (!romData || !mainRef.current || !debugRef.current) {
+    const canvas = canvas_ref.current;
+
+    if (!canvas) {
       return;
     }
 
-    ui_init(mainRef.current, debugRef.current);
-    emu_init();
+    const context = canvas.getContext("2d");
 
-    if (!emu_load_rom(romData, romName)) {
-      console.error("Failed to load ROM");
+    if (!context) {
       return;
     }
 
-    emu_start();
+    const ppu_ctx = ppu_get_context();
 
-    const loop = () => {
-      emu_run_chunk(2000);
+    // change this to whatever your actual framebuffer field is called
+    const frame_buffer = ppu_ctx.current_frame;
 
-      const currentFrame = emu_get_frame();
-      if (currentFrame !== prevFrameRef.current) {
-        ui_update();
-        prevFrameRef.current = currentFrame;
-      }
+    if (!frame_buffer) {
+      return;
+    }
 
-      rafRef.current = requestAnimationFrame(loop);
-    };
-
-    rafRef.current = requestAnimationFrame(loop);
-
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
-
-      emu_stop();
-      ui_destroy();
-    };
-  }, [romData, romName]);
-
-  if (!romData) {
-    return <div>Select a ROM file to start.</div>;
-  }
+    // expects RGBA buffer: 160 * 144 * 4
+    const image_data = new ImageData(frame_buffer, 160, 144);
+    context.putImageData(image_data, 0, 0);
+  }, [emu.current_frame]);
 
   return (
-    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-      <div>
-        <div>Game</div>
-        <canvas ref={mainRef} />
-      </div>
+    <div>
+      <canvas
+        ref={canvas_ref}
+        width={160}
+        height={144}
+        style={{
+          width: 320,
+          height: 288,
+          imageRendering: "pixelated",
+          border: "1px solid #666",
+        }}
+      />
 
-      <div>
-        <div>Tiles</div>
-        <canvas ref={debugRef} />
-      </div>
+      <div>rom: {rom_name || "none"}</div>
+      <div>running: {String(emu.running)}</div>
+      <div>paused: {String(emu.paused)}</div>
+      <div>ticks: {emu.ticks}</div>
+      <div>frame: {emu.current_frame}</div>
+
+      <button onClick={() => emu_start()}>start</button>
+      <button onClick={() => emu_pause()}>pause</button>
+      <button onClick={() => emu_resume()}>resume</button>
+      <button onClick={() => emu_stop()}>stop</button>
     </div>
   );
 }

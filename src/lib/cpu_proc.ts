@@ -33,7 +33,7 @@ export function cpu_set_flags(
 
 export function proc_none(): void {
     console.log("INVALID INSTRUCTION!\n");
-    process.exit(-7);
+    throw new Error("unknown or unimplemented instruction");
 }
 
 export function proc_nop(): void {}
