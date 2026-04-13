@@ -315,6 +315,20 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
   ctx.rom_data = new Uint8Array(data);
 
   ctx.header = parse_rom_header(ctx.rom_data);
+
+  const supported =
+    ctx.header.type === 0x00 ||
+    (ctx.header.type >= 0x01 && ctx.header.type <= 0x03);
+
+  if (!supported) {
+    console.error(
+      `unsupported cartridge type: 0x${ctx.header.type
+        .toString(16)
+        .padStart(2, "0")} (${cart_type_name()})`,
+    );
+    return false;
+  }
+
   ctx.battery = cart_battery();
   ctx.need_save = false;
   ctx.ram_enabled = false;
