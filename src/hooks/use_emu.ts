@@ -1,5 +1,3 @@
-"use client";
-
 import { useSyncExternalStore as use_sync_external_store } from "react";
 import {
   emu_get_context,
