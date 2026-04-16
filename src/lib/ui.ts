@@ -1,8 +1,8 @@
-import { emu_get_context } from "@/lib/emu";
 import { bus_read } from "@/lib/bus";
-import { ppu_get_context } from "@/lib/ppu";
+import { emu_get_context } from "@/lib/emu";
 import { gamepad_get_state } from "@/lib/gamepad";
-import { SCREEN_WIDTH, SCREEN_HEIGHT, XRES, YRES } from "@/lib/common";
+import { SCREEN_HEIGHT, SCREEN_WIDTH, XRES, YRES } from "@/lib/common";
+import { ppu_get_context } from "@/lib/ppu";
 
 type ui_context = {
   mainCanvas: HTMLCanvasElement | null;
@@ -11,6 +11,7 @@ type ui_context = {
   debugCtx: CanvasRenderingContext2D | null;
   scale: number;
   initialized: boolean;
+  imageData: ImageData | null;
 };
 
 const ui: ui_context = {
@@ -20,6 +21,7 @@ const ui: ui_context = {
   debugCtx: null,
   scale: 4,
   initialized: false,
+  imageData: null,
 };
 
 const tileColors = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
@@ -29,32 +31,43 @@ function argb_to_css(color: number): string {
   const r = (color >>> 16) & 0xff;
   const g = (color >>> 8) & 0xff;
   const b = color & 0xff;
+
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 export function ui_init(
   mainCanvas: HTMLCanvasElement,
-  debugCanvas: HTMLCanvasElement,
+  debugCanvas?: HTMLCanvasElement | null,
+  scale = 4,
 ): void {
   const mainCtx = mainCanvas.getContext("2d");
-  const debugCtx = debugCanvas.getContext("2d");
 
-  if (!mainCtx || !debugCtx) {
-    throw new Error("Failed to get canvas 2D context");
+  if (!mainCtx) {
+    throw new Error("Failed to get main canvas 2D context");
   }
 
-  mainCanvas.width = SCREEN_WIDTH * ui.scale;
-  mainCanvas.height = SCREEN_HEIGHT * ui.scale;
-  debugCanvas.width = (16 * 8 * ui.scale) + (16 * ui.scale);
-  debugCanvas.height = (32 * 8 * ui.scale) + (64 * ui.scale);
+  const debugCtx = debugCanvas?.getContext("2d") ?? null;
+
+  ui.scale = scale;
+
+  mainCanvas.width = SCREEN_WIDTH;
+  mainCanvas.height = SCREEN_HEIGHT;
+  mainCanvas.style.width = `${SCREEN_WIDTH * scale}px`;
+  mainCanvas.style.height = `${SCREEN_HEIGHT * scale}px`;
 
   mainCtx.imageSmoothingEnabled = false;
-  debugCtx.imageSmoothingEnabled = false;
+
+  if (debugCanvas && debugCtx) {
+    debugCanvas.width = (16 * 8 * scale) + (16 * scale);
+    debugCanvas.height = (32 * 8 * scale) + (64 * scale);
+    debugCtx.imageSmoothingEnabled = false;
+  }
 
   ui.mainCanvas = mainCanvas;
   ui.mainCtx = mainCtx;
-  ui.debugCanvas = debugCanvas;
+  ui.debugCanvas = debugCanvas ?? null;
   ui.debugCtx = debugCtx;
+  ui.imageData = new ImageData(XRES, YRES);
   ui.initialized = true;
 
   window.addEventListener("keydown", onKeyDown);
@@ -69,15 +82,8 @@ export function ui_destroy(): void {
   ui.mainCtx = null;
   ui.debugCanvas = null;
   ui.debugCtx = null;
+  ui.imageData = null;
   ui.initialized = false;
-}
-
-export function get_ticks(): number {
-  return performance.now() | 0;
-}
-
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function fillRect(
@@ -117,7 +123,9 @@ function display_tile(
 }
 
 function update_dbg_window(): void {
-  if (!ui.debugCtx || !ui.debugCanvas) return;
+  if (!ui.debugCtx || !ui.debugCanvas) {
+    return;
+  }
 
   ui.debugCtx.fillStyle = "#111111";
   ui.debugCtx.fillRect(0, 0, ui.debugCanvas.width, ui.debugCanvas.height);
@@ -137,6 +145,7 @@ function update_dbg_window(): void {
         xDraw + (x * ui.scale),
         yDraw + (y * ui.scale),
       );
+
       xDraw += 8 * ui.scale;
       tileNum++;
     }
@@ -147,23 +156,29 @@ function update_dbg_window(): void {
 }
 
 export function ui_update(): void {
-  if (!ui.initialized || !ui.mainCtx) return;
+  if (!ui.initialized || !ui.mainCtx || !ui.imageData) {
+    return;
+  }
 
   const videoBuffer = ppu_get_context().video_buffer;
+  const data = ui.imageData.data;
 
-  for (let lineNum = 0; lineNum < YRES; lineNum++) {
-    for (let x = 0; x < XRES; x++) {
-      const color = videoBuffer[x + (lineNum * XRES)];
-      fillRect(
-        ui.mainCtx,
-        x * ui.scale,
-        lineNum * ui.scale,
-        ui.scale,
-        ui.scale,
-        color,
-      );
-    }
+  for (let i = 0; i < videoBuffer.length; i++) {
+    const color = videoBuffer[i] >>> 0;
+
+    const a = (color >>> 24) & 0xff;
+    const r = (color >>> 16) & 0xff;
+    const g = (color >>> 8) & 0xff;
+    const b = color & 0xff;
+
+    const j = i * 4;
+    data[j + 0] = r;
+    data[j + 1] = g;
+    data[j + 2] = b;
+    data[j + 3] = a;
   }
+
+  ui.mainCtx.putImageData(ui.imageData, 0, 0);
 
   update_dbg_window();
 }

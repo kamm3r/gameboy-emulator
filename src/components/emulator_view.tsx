@@ -1,61 +1,52 @@
 import { useEffect, useRef } from "react";
-import {
-  emu_pause,
-  emu_resume,
-  emu_start,
-  emu_stop,
-} from "@/lib/emu";
-import { ppu_get_context } from "@/lib/ppu";
+import { emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
+import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
 import { useEmu } from "@/hooks/use_emu";
 
 type emulator_view_props = {
   rom_name: string;
 };
 
-export function EmulatorView({
-  rom_name,
-}: emulator_view_props) {
+export function EmulatorView({ rom_name }: emulator_view_props) {
   const emu = useEmu();
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
+  const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = canvas_ref.current;
+    const debugCanvas = debug_canvas_ref.current;
 
     if (!canvas) {
       return;
     }
 
-    const context = canvas.getContext("2d");
+    ui_init(canvas, debugCanvas, 2);
 
-    if (!context) {
-      return;
-    }
+    return () => {
+      ui_destroy();
+    };
+  }, []);
 
-    const ppu_ctx = ppu_get_context();
-
-    // change this to whatever your actual framebuffer field is called
-    const frame_buffer = ppu_ctx.current_frame;
-
-    if (!frame_buffer) {
-      return;
-    }
-
-    // expects RGBA buffer: 160 * 144 * 4
-    const image_data = new ImageData(frame_buffer, 160, 144);
-    context.putImageData(image_data, 0, 0);
+  useEffect(() => {
+    ui_update();
   }, [emu.current_frame]);
 
   return (
     <div>
       <canvas
         ref={canvas_ref}
-        width={160}
-        height={144}
         style={{
-          width: 320,
-          height: 288,
           imageRendering: "pixelated",
           border: "1px solid #666",
+        }}
+      />
+
+      <canvas
+        ref={debug_canvas_ref}
+        style={{
+          imageRendering: "pixelated",
+          border: "1px solid #666",
+          marginTop: 8,
         }}
       />
 

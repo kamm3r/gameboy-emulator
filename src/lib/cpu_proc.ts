@@ -31,9 +31,38 @@ export function cpu_set_flags(
   ctx.registers.F &= 0xf0;
 }
 
-export function proc_none(): void {
-    console.log("INVALID INSTRUCTION!\n");
-    throw new Error("unknown or unimplemented instruction");
+function hex8(value: number): string {
+  return `0x${(value & 0xff).toString(16).padStart(2, "0")}`;
+}
+
+function hex16(value: number): string {
+  return `0x${(value & 0xffff).toString(16).padStart(4, "0")}`;
+}
+
+const invalidOpcodes = new Set([
+  0xd3, 0xdb, 0xdd, 0xe3, 0xe4, 0xeb, 0xec, 0xed, 0xf4, 0xfc, 0xfd,
+]);
+
+export function proc_none(ctx: cpu_context): void {
+  const pc = ctx.registers.PC & 0xffff;
+  const opcode = ctx.current_opcode & 0xff;
+
+  console.error("INVALID INSTRUCTION");
+  console.error({
+    pc: hex16(pc),
+    opcode: hex8(opcode),
+    fetched_data: hex16(ctx.fetched_data),
+    legal_sm83_opcode: !invalidOpcodes.has(opcode),
+    instruction: ctx.current_instruction,
+    registers: { ...ctx.registers },
+    next0: hex8(bus_read(pc)),
+    next1: hex8(bus_read((pc + 1) & 0xffff)),
+    next2: hex8(bus_read((pc + 2) & 0xffff)),
+  });
+
+  throw new Error(
+    `unknown or unimplemented instruction opcode=${hex8(opcode)} pc=${hex16(pc)}`,
+  );
 }
 
 export function proc_nop(): void {}
@@ -337,12 +366,16 @@ export function proc_ldh(ctx: cpu_context): void {
 }
 
 export function check_cond(ctx: cpu_context): boolean {
+  const cond = ctx.current_instruction?.cond;
+
+  if (cond == null || cond === "CT_NONE") {
+    return true;
+  }
+
   const z = (ctx.registers.F & 0x80) !== 0;
   const c = (ctx.registers.F & 0x10) !== 0;
 
-  switch (ctx.current_instruction?.cond) {
-    case "CT_NONE":
-      return true;
+  switch (cond) {
     case "CT_C":
       return c;
     case "CT_NC":
@@ -351,9 +384,9 @@ export function check_cond(ctx: cpu_context): boolean {
       return z;
     case "CT_NZ":
       return !z;
+    default:
+      return true;
   }
-
-  return false;
 }
 
 export function goto_address(
