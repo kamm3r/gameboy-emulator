@@ -1,19 +1,19 @@
 import { lcd_get_context } from "./lcd";
 import { ppu_get_context, oam_line_entry, XRES, YRES } from "./ppu";
-import { cpu_request_interrupt } from "./cpu";
+import {
+  cpu_request_interrupt,
+  INT_VBLANK,
+  INT_LCD_STAT,
+} from "./cpu";
 import { cart_need_save, cart_battery_save } from "./cart";
 import {
   pipeline_fifo_reset,
   pipeline_process,
-  window_visible,
   FS_TILE,
 } from "./ppu_pipeline";
 
 export const LINES_PER_FRAME = 154;
 export const TICKS_PER_LINE = 456;
-
-const IT_VBLANK = 0;
-const IT_LCD_STAT = 1;
 
 const SS_HBLANK = 0;
 const SS_VBLANK = 1;
@@ -51,7 +51,7 @@ export function increment_ly(): void {
   const lcd = lcd_get_context();
   const ppu = ppu_get_context();
 
-  if (window_visible() && lcd.ly >= lcd.win_y && lcd.ly < lcd.win_y + YRES) {
+  if (ppu.pfc.fetching_window) {
     ppu.window_line++;
   }
 
@@ -61,7 +61,7 @@ export function increment_ly(): void {
     LCDS_LYC_SET(1);
 
     if (LCDS_STAT_INT(SS_LYC)) {
-      cpu_request_interrupt(IT_LCD_STAT);
+      cpu_request_interrupt(INT_LCD_STAT);
     }
   } else {
     LCDS_LYC_SET(0);
@@ -138,6 +138,7 @@ export function ppu_mode_oam(): void {
     ppu.pfc.fetch_x = 0;
     ppu.pfc.pushed_x = 0;
     ppu.pfc.fifo_x = 0;
+    ppu.pfc.fetching_window = false;
   }
 
   if (ppu.line_ticks === 1) {
@@ -157,7 +158,7 @@ export function ppu_mode_xfer(): void {
     LCDS_MODE_SET(MODE_HBLANK);
 
     if (LCDS_STAT_INT(SS_HBLANK)) {
-      cpu_request_interrupt(IT_LCD_STAT);
+      cpu_request_interrupt(INT_LCD_STAT);
     }
   }
 }
@@ -202,10 +203,10 @@ export function ppu_mode_hblank(): void {
 
     if (lcd.ly >= YRES) {
       LCDS_MODE_SET(MODE_VBLANK);
-      cpu_request_interrupt(IT_VBLANK);
+      cpu_request_interrupt(INT_VBLANK);
 
       if (LCDS_STAT_INT(SS_VBLANK)) {
-        cpu_request_interrupt(IT_LCD_STAT);
+        cpu_request_interrupt(INT_LCD_STAT);
       }
 
       ppu.current_frame++;

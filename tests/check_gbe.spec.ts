@@ -1,13 +1,12 @@
 import { test, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { emulation_load, emulation_reset, emulation_stop, emulation_get_context } from "../src/lib/emu-browser.js";
 import { cpu_get_context, cpu_step } from "../src/lib/cpu.js";
 import { timer_tick } from "../src/lib/timer.js";
-import { ppu_tick } from "../src/lib/ppu.js";
+import { ppu_tick } from "../src/lib/ppu_sm.js";
 import { dma_tick } from "../src/lib/dma.js";
 import { bus_read, bus_write } from "../src/lib/bus.js";
-import { dbg_get_messages, dbg_clear } from "../src/lib/dbg.js";
+import {  } from "../src/lib/dbg.js";
 
 const TEST_ROMS = [
   "01-special.gb",

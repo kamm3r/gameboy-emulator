@@ -51,6 +51,7 @@ export type ppu_context = {
     map_y: number;
     map_x: number;
     tile_y: number;
+    fetching_window: boolean;
     bgw_fetch_data: number[];
     fetch_entry_data: number[];
   };
@@ -88,8 +89,9 @@ const ctx: ppu_context = {
     map_y: 0,
     map_x: 0,
     tile_y: 0,
+    fetching_window: false,
     bgw_fetch_data: [0, 0, 0],
-    fetch_entry_data: new Array(16).fill(0),
+    fetch_entry_data: new Array(20).fill(0),
   },
   line_sprites: null,
   line_entry_array: [],
@@ -119,8 +121,9 @@ export function ppu_init(): void {
   ctx.pfc.map_y = 0;
   ctx.pfc.map_x = 0;
   ctx.pfc.tile_y = 0;
+  ctx.pfc.fetching_window = false;
   ctx.pfc.bgw_fetch_data = [0, 0, 0];
-  ctx.pfc.fetch_entry_data = new Array(16).fill(0);
+  ctx.pfc.fetch_entry_data = new Array(20).fill(0);
 
   ctx.line_sprites = null;
   ctx.line_entry_array = [];
@@ -137,10 +140,6 @@ export function ppu_init(): void {
   ctx.video_buffer.fill(0);
 
   lcd_init();
-}
-
-export function ppu_tick(): void {
-  ctx.line_ticks++;
 }
 
 export function ppu_oam_write(address: number, value: number): void {

@@ -204,7 +204,6 @@ export function cpu_step(): boolean {
   return true;
 }
 
-
 export function cpu_ie_register(): number {
   return ctx.ie_register & 0xff;
 }

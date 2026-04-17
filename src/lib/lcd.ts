@@ -42,6 +42,14 @@ const ctx: lcd_context = {
   sp2_colors: [...colorsDefault],
 };
 
+function update_lyc_flag(): void {
+  if (ctx.ly === ctx.ly_compare) {
+    ctx.lcds |= 0x04;
+  } else {
+    ctx.lcds &= ~0x04;
+  }
+}
+
 export function lcd_init(): void {
   ctx.lcdc = 0x91;
   ctx.lcds = 0;
@@ -61,6 +69,8 @@ export function lcd_init(): void {
     ctx.sp1_colors[i] = colorsDefault[i];
     ctx.sp2_colors[i] = colorsDefault[i];
   }
+
+  update_lyc_flag();
 }
 
 export function lcd_get_context(): lcd_context {
@@ -72,7 +82,7 @@ export function lcd_read(address: number): number {
     case 0xff40:
       return ctx.lcdc;
     case 0xff41:
-      return ctx.lcds;
+      return ctx.lcds | 0x80;
     case 0xff42:
       return ctx.scroll_y;
     case 0xff43:
@@ -128,7 +138,7 @@ export function lcd_write(address: number, value: number): void {
       ctx.lcdc = value;
       break;
     case 0xff41:
-      ctx.lcds = value;
+      ctx.lcds = (ctx.lcds & 0x07) | (value & 0x78);
       break;
     case 0xff42:
       ctx.scroll_y = value;
@@ -137,10 +147,10 @@ export function lcd_write(address: number, value: number): void {
       ctx.scroll_x = value;
       break;
     case 0xff44:
-      ctx.ly = value;
       break;
     case 0xff45:
       ctx.ly_compare = value;
+      update_lyc_flag();
       break;
     case 0xff46:
       ctx.dma = value;
