@@ -116,12 +116,12 @@ export function proc_cb(ctx: cpu_context): void {
 
     case 2:
       regVal &= ~(1 << bit);
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       return;
 
     case 3:
       regVal |= 1 << bit;
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       return;
   }
 
@@ -136,7 +136,7 @@ export function proc_cb(ctx: cpu_context): void {
         result |= 1;
       }
 
-      cpu_set_register8(ctx, reg, result);
+      write_cb_result(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, setC ? 1 : 0);
       return;
     }
@@ -144,7 +144,7 @@ export function proc_cb(ctx: cpu_context): void {
     case 1: {
       const old = regVal;
       regVal = ((regVal >> 1) | (old << 7)) & 0xff;
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 1 ? 1 : 0);
       return;
     }
@@ -152,7 +152,7 @@ export function proc_cb(ctx: cpu_context): void {
     case 2: {
       const old = regVal;
       regVal = ((regVal << 1) | flagC) & 0xff;
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 0x80 ? 1 : 0);
       return;
     }
@@ -160,7 +160,7 @@ export function proc_cb(ctx: cpu_context): void {
     case 3: {
       const old = regVal;
       regVal = ((regVal >> 1) | (flagC << 7)) & 0xff;
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 1 ? 1 : 0);
       return;
     }
@@ -168,28 +168,28 @@ export function proc_cb(ctx: cpu_context): void {
     case 4: {
       const old = regVal;
       regVal = (regVal << 1) & 0xff;
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, old & 0x80 ? 1 : 0);
       return;
     }
 
     case 5: {
       const result = ((regVal >> 1) | (regVal & 0x80)) & 0xff;
-      cpu_set_register8(ctx, reg, result);
+      write_cb_result(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, regVal & 1 ? 1 : 0);
       return;
     }
 
     case 6: {
       regVal = ((regVal & 0xf0) >> 4) | ((regVal & 0x0f) << 4);
-      cpu_set_register8(ctx, reg, regVal);
+      write_cb_result(ctx, reg, regVal);
       cpu_set_flags(ctx, regVal === 0 ? 1 : 0, 0, 0, 0);
       return;
     }
 
     case 7: {
       const result = (regVal >> 1) & 0xff;
-      cpu_set_register8(ctx, reg, result);
+      write_cb_result(ctx, reg, result);
       cpu_set_flags(ctx, result === 0 ? 1 : 0, 0, 0, regVal & 1 ? 1 : 0);
       return;
     }

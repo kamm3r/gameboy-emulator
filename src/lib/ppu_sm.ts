@@ -1,23 +1,16 @@
 import { lcd_get_context } from "./lcd";
 import { ppu_get_context, oam_line_entry, XRES, YRES } from "./ppu";
-import {
-  cpu_request_interrupt,
-  INT_VBLANK,
-  INT_LCD_STAT,
-} from "./cpu";
+import { cpu_request_interrupt, INT_VBLANK, INT_LCD_STAT } from "./cpu";
 import { cart_need_save, cart_battery_save } from "./cart";
-import {
-  pipeline_fifo_reset,
-  pipeline_process,
-  FS_TILE,
-} from "./ppu_pipeline";
+import { pipeline_fifo_reset, pipeline_process, FS_TILE } from "./ppu_pipeline";
 
 export const LINES_PER_FRAME = 154;
 export const TICKS_PER_LINE = 456;
 
 const SS_HBLANK = 0;
 const SS_VBLANK = 1;
-const SS_LYC = 2;
+const SS_OAM = 2;
+const SS_LYC = 3;
 
 export const MODE_HBLANK = 0;
 export const MODE_VBLANK = 1;
@@ -31,6 +24,21 @@ function LCDS_LYC_SET(value: number): void {
     lcd.lcds |= 0x04;
   } else {
     lcd.lcds &= ~0x04;
+  }
+}
+
+function set_ly(value: number): void {
+  const lcd = lcd_get_context();
+  lcd.ly = value & 0xff;
+
+  if (lcd.ly === lcd.ly_compare) {
+    LCDS_LYC_SET(1);
+
+    if (LCDS_STAT_INT(SS_LYC)) {
+      cpu_request_interrupt(INT_LCD_STAT);
+    }
+  } else {
+    LCDS_LYC_SET(0);
   }
 }
 
@@ -55,24 +63,14 @@ export function increment_ly(): void {
     ppu.window_line++;
   }
 
-  lcd.ly = (lcd.ly + 1) & 0xff;
-
-  if (lcd.ly === lcd.ly_compare) {
-    LCDS_LYC_SET(1);
-
-    if (LCDS_STAT_INT(SS_LYC)) {
-      cpu_request_interrupt(INT_LCD_STAT);
-    }
-  } else {
-    LCDS_LYC_SET(0);
-  }
+  set_ly(lcd.ly + 1);
 }
 
 export function load_line_sprites(): void {
   const lcd = lcd_get_context();
   const ppu = ppu_get_context();
   const cur_y = lcd.ly;
-  const sprite_height = (lcd.lcdc & 0x04) ? 16 : 8;
+  const sprite_height = lcd.lcdc & 0x04 ? 16 : 8;
 
   ppu.line_sprites = null;
   ppu.line_entry_array = [];
@@ -130,6 +128,16 @@ export function load_line_sprites(): void {
 export function ppu_mode_oam(): void {
   const ppu = ppu_get_context();
 
+  if (ppu.line_ticks === 1) {
+    if (LCDS_STAT_INT(SS_OAM)) {
+      cpu_request_interrupt(INT_LCD_STAT);
+    }
+
+    ppu.line_sprites = null;
+    ppu.line_sprite_count = 0;
+    load_line_sprites();
+  }
+
   if (ppu.line_ticks >= 80) {
     LCDS_MODE_SET(MODE_XFER);
 
@@ -139,12 +147,6 @@ export function ppu_mode_oam(): void {
     ppu.pfc.pushed_x = 0;
     ppu.pfc.fifo_x = 0;
     ppu.pfc.fetching_window = false;
-  }
-
-  if (ppu.line_ticks === 1) {
-    ppu.line_sprites = null;
-    ppu.line_sprite_count = 0;
-    load_line_sprites();
   }
 }
 
@@ -172,7 +174,7 @@ export function ppu_mode_vblank(): void {
 
     if (lcd.ly >= LINES_PER_FRAME) {
       LCDS_MODE_SET(MODE_OAM);
-      lcd.ly = 0;
+      set_ly(0);
       ppu.window_line = 0;
     }
 

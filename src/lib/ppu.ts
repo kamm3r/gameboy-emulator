@@ -143,14 +143,15 @@ export function ppu_init(): void {
 }
 
 export function ppu_oam_write(address: number, value: number): void {
-  if (address >= 0xfe00) {
-    address -= 0xfe00;
+  if (address < 0xfe00 || address > 0xfe9f) {
+    throw new Error(
+      `ppu_oam_write out of range: 0x${address.toString(16).padStart(4, "0")}`,
+    );
   }
 
-  const index = Math.floor(address / 4);
-  const offset = address % 4;
-
-  if (index >= 40) return;
+  const rel = address - 0xfe00;
+  const index = Math.floor(rel / 4);
+  const offset = rel % 4;
 
   const entry = ctx.oam_ram[index];
 
@@ -171,35 +172,48 @@ export function ppu_oam_write(address: number, value: number): void {
 }
 
 export function ppu_oam_read(address: number): number {
-  if (address >= 0xfe00) {
-    address -= 0xfe00;
+  if (address < 0xfe00 || address > 0xfe9f) {
+    throw new Error(
+      `ppu_oam_read out of range: 0x${address.toString(16).padStart(4, "0")}`,
+    );
   }
 
-  const index = Math.floor(address / 4);
-  const offset = address % 4;
-
-  if (index >= 40) return 0;
+  const rel = address - 0xfe00;
+  const index = Math.floor(rel / 4);
+  const offset = rel % 4;
 
   const entry = ctx.oam_ram[index];
 
   switch (offset) {
     case 0:
-      return entry.y;
+      return entry.y & 0xff;
     case 1:
-      return entry.x;
+      return entry.x & 0xff;
     case 2:
-      return entry.tile;
+      return entry.tile & 0xff;
     case 3:
-      return entry.attributes;
+      return entry.attributes & 0xff;
     default:
-      return 0;
+      return 0xff;
   }
 }
 
 export function ppu_vram_write(address: number, value: number): void {
-  ctx.vram[(address - 0x8000) & 0x1fff] = value & 0xff;
+  if (address < 0x8000 || address > 0x9fff) {
+    throw new Error(
+      `ppu_vram_write out of range: 0x${address.toString(16).padStart(4, "0")}`,
+    );
+  }
+
+  ctx.vram[address - 0x8000] = value & 0xff;
 }
 
 export function ppu_vram_read(address: number): number {
-  return ctx.vram[(address - 0x8000) & 0x1fff];
+  if (address < 0x8000 || address > 0x9fff) {
+    throw new Error(
+      `ppu_vram_read out of range: 0x${address.toString(16).padStart(4, "0")}`,
+    );
+  }
+
+  return ctx.vram[address - 0x8000] & 0xff;
 }

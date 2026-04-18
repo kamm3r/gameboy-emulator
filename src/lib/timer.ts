@@ -22,35 +22,38 @@ export function timer_get_context(): timer_context {
 
 export function timer_init(): void {
   ctx.div = 0xac00;
+  ctx.tima = 0;
+  ctx.tma = 0;
+  ctx.tac = 0;
 }
 
 export function timer_tick(): void {
   const prev_div = ctx.div;
-  ctx.div++;
+  ctx.div = (ctx.div + 1) & 0xffff;
 
   let timer_update = false;
 
   switch (ctx.tac & 0b11) {
     case 0b00:
-      timer_update = (prev_div & (1 << 9)) !== 0 && !(ctx.div & (1 << 9));
+      timer_update = (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
       break;
     case 0b01:
-      timer_update = (prev_div & (1 << 3)) !== 0 && !(ctx.div & (1 << 3));
+      timer_update = (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
       break;
     case 0b10:
-      timer_update = (prev_div & (1 << 5)) !== 0 && !(ctx.div & (1 << 5));
+      timer_update = (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
       break;
     case 0b11:
-      timer_update = (prev_div & (1 << 7)) !== 0 && !(ctx.div & (1 << 7));
+      timer_update = (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
       break;
   }
 
-  if (timer_update && ctx.tac & (1 << 2)) {
-    ctx.tima++;
-
+  if (timer_update && (ctx.tac & (1 << 2))) {
     if (ctx.tima === 0xff) {
-      ctx.tima = ctx.tma;
+      ctx.tima = ctx.tma & 0xff;
       cpu_request_interrupt(IT_TIMER);
+    } else {
+      ctx.tima = (ctx.tima + 1) & 0xff;
     }
   }
 }
@@ -61,13 +64,13 @@ export function timer_write(address: number, value: number): void {
       ctx.div = 0;
       break;
     case 0xff05:
-      ctx.tima = value;
+      ctx.tima = value & 0xff;
       break;
     case 0xff06:
-      ctx.tma = value;
+      ctx.tma = value & 0xff;
       break;
     case 0xff07:
-      ctx.tac = value;
+      ctx.tac = value & 0x07;
       break;
   }
 }

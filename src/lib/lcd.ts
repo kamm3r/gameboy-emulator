@@ -50,6 +50,24 @@ function update_lyc_flag(): void {
   }
 }
 
+function update_palette(paletteData: number, pal: number): void {
+  let p_colors = ctx.bg_colors;
+
+  switch (pal) {
+    case 1:
+      p_colors = ctx.sp1_colors;
+      break;
+    case 2:
+      p_colors = ctx.sp2_colors;
+      break;
+  }
+
+  p_colors[0] = colorsDefault[paletteData & 0b11];
+  p_colors[1] = colorsDefault[(paletteData >> 2) & 0b11];
+  p_colors[2] = colorsDefault[(paletteData >> 4) & 0b11];
+  p_colors[3] = colorsDefault[(paletteData >> 6) & 0b11];
+}
+
 export function lcd_init(): void {
   ctx.lcdc = 0x91;
   ctx.lcds = 0;
@@ -75,6 +93,15 @@ export function lcd_init(): void {
 
 export function lcd_get_context(): lcd_context {
   return ctx;
+}
+
+export function lcd_set_ly(value: number): void {
+  ctx.ly = value & 0xff;
+  update_lyc_flag();
+}
+
+export function lcd_set_mode(mode: number): void {
+  ctx.lcds = (ctx.lcds & ~0x03) | (mode & 0x03);
 }
 
 export function lcd_read(address: number): number {
@@ -107,26 +134,8 @@ export function lcd_read(address: number): number {
       console.log(
         `UNSUPPORTED lcd_read(${address.toString(16).padStart(4, "0")})`,
       );
-      return 0;
+      return 0xff;
   }
-}
-
-function update_palette(paletteData: number, pal: number): void {
-  let p_colors = ctx.bg_colors;
-
-  switch (pal) {
-    case 1:
-      p_colors = ctx.sp1_colors;
-      break;
-    case 2:
-      p_colors = ctx.sp2_colors;
-      break;
-  }
-
-  p_colors[0] = colorsDefault[paletteData & 0b11];
-  p_colors[1] = colorsDefault[(paletteData >> 2) & 0b11];
-  p_colors[2] = colorsDefault[(paletteData >> 4) & 0b11];
-  p_colors[3] = colorsDefault[(paletteData >> 6) & 0b11];
 }
 
 export function lcd_write(address: number, value: number): void {
@@ -162,11 +171,11 @@ export function lcd_write(address: number, value: number): void {
       break;
     case 0xff48:
       ctx.obj_palette[0] = value;
-      update_palette(value & 0b11111100, 1);
+      update_palette(value & 0xfc, 1);
       break;
     case 0xff49:
       ctx.obj_palette[1] = value;
-      update_palette(value & 0b11111100, 2);
+      update_palette(value & 0xfc, 2);
       break;
     case 0xff4a:
       ctx.win_y = value;
