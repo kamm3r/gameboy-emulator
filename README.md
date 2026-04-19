@@ -19,7 +19,7 @@ pnpx tsx ./src/lib/main.ts ./roms/tetris_world.gb
 - [ ] bus
 - [ ] timer
 - [ ] emulation
-- [ ] ui integration
+- [x] ui integration
 
 References:
 https://gbdev.io/pandocs/
