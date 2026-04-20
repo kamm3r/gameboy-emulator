@@ -22,4 +22,15 @@ export function dbg_print(): void {
     console.log(`DBG: ${dbg_msg}\n`)
    }
 }
-2
+
+export function dbg_get_message(): string {
+  let out = "";
+  for (let i = 0; i < msg_size; i++) {
+    out += String.fromCharCode(dbg_msg[i]);
+  }
+  return out;
+}
+
+export function dbg_clear(): void {
+  msg_size = 0;
+}
