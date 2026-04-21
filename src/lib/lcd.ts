@@ -19,10 +19,7 @@ export type lcd_context = {
 };
 
 const colorsDefault: [number, number, number, number] = [
-  0xffffffff,
-  0xffaaaaaa,
-  0xff555555,
-  0xff000000,
+  0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000,
 ];
 
 const ctx: lcd_context = {
@@ -156,7 +153,7 @@ export function lcd_write(address: number, value: number): void {
       ctx.scroll_x = value;
       break;
     case 0xff44:
-      break;
+      break; // LY is read-only
     case 0xff45:
       ctx.ly_compare = value;
       update_lyc_flag();
@@ -171,11 +168,11 @@ export function lcd_write(address: number, value: number): void {
       break;
     case 0xff48:
       ctx.obj_palette[0] = value;
-      update_palette(value & 0xfc, 1);
+      update_palette(value & 0xfc, 1); 
       break;
     case 0xff49:
       ctx.obj_palette[1] = value;
-      update_palette(value & 0xfc, 2);
+      update_palette(value, 2);
       break;
     case 0xff4a:
       ctx.win_y = value;

@@ -4,6 +4,7 @@ import { dma_tick } from "@/lib/dma";
 import { ppu_get_context, ppu_init } from "@/lib/ppu";
 import { ppu_tick, ppu_sm_init } from "@/lib/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
+import { audio_init, audio_tick } from "@/lib/audio";
 
 export type emu_context = {
   paused: boolean;
@@ -151,6 +152,7 @@ export function emu_init(): void {
   cpu_init();
   ppu_init();
   ppu_sm_init();
+  audio_init();
 
   initialized = true;
 
@@ -247,6 +249,7 @@ export function emu_cycles(cpu_cycles: number): void {
       ctx.ticks++;
       timer_tick();
       ppu_tick();
+      audio_init();
     }
 
     dma_tick();

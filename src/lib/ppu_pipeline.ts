@@ -110,45 +110,38 @@ export function pixel_fifo_pop(): number {
 }
 
 export function fetch_sprite_pixels(
+  screen_x: number,
   bit: number,
   color: number,
   bg_color: number,
 ): number {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
   for (let i = 0; i < ppu.fetched_entry_count; i++) {
     const sprite = ppu.fetched_entries[i];
     const sp_x = sprite.x - 8;
-
-    if (sp_x + 8 <= ppu.pfc.fifo_x) {
-      continue;
-    }
-
-    const offset = ppu.pfc.fifo_x - sp_x;
+    const offset = screen_x - sp_x;
 
     if (offset < 0 || offset > 7) {
       continue;
     }
 
-    bit = 7 - offset;
+    bit = sprite.f_x_flip ? offset : 7 - offset;
 
-    if (sprite.f_x_flip) {
-      bit = offset;
-    }
+    const low = ppu.pfc.fetch_entry_data[i * 2] & (1 << bit) ? 1 : 0;
+    const high =
+      (ppu.pfc.fetch_entry_data[i * 2 + 1] & (1 << bit) ? 1 : 0) << 1;
+    const spriteColorId = low | high;
 
-    const hi = ppu.pfc.fetch_entry_data[i * 2] & (1 << bit) ? 1 : 0;
-    const lo = (ppu.pfc.fetch_entry_data[i * 2 + 1] & (1 << bit) ? 1 : 0) << 1;
-
-    const spriteColorId = hi | lo;
-
-    if (!spriteColorId) {
+    if (spriteColorId === 0) {
       continue;
     }
 
     if (!sprite.f_bgp || bg_color === 0) {
       color = sprite.f_pn
-        ? lcd_get_context().sp2_colors[spriteColorId]
-        : lcd_get_context().sp1_colors[spriteColorId];
+        ? lcd.sp2_colors[spriteColorId]
+        : lcd.sp1_colors[spriteColorId];
       break;
     }
   }
@@ -158,26 +151,32 @@ export function fetch_sprite_pixels(
 
 export function pipeline_fifo_add(): boolean {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
   if (ppu.pfc.pixel_fifo.size > 8) {
     return false;
   }
 
-  const x = ppu.pfc.fetch_x - (8 - (lcd_get_context().scroll_x % 8));
+  const base_x = ppu.pfc.fetching_window
+    ? ppu.pfc.fetch_x
+    : ppu.pfc.fetch_x - (8 - (lcd.scroll_x % 8));
 
   for (let i = 0; i < 8; i++) {
     const bit = 7 - i;
+    const screen_x = base_x + i;
+
     const lowBit = ppu.pfc.bgw_fetch_data[1] & (1 << bit) ? 1 : 0;
     const highBit = ppu.pfc.bgw_fetch_data[2] & (1 << bit) ? 2 : 0;
     const bgColorIdRaw = lowBit | highBit;
     const bgColorId = LCDC_BGW_ENABLE() ? bgColorIdRaw : 0;
-    let color = lcd_get_context().bg_colors[bgColorId];
+
+    let color = lcd.bg_colors[bgColorId];
 
     if (LCDC_OBJ_ENABLE()) {
-      color = fetch_sprite_pixels(bit, color, bgColorId);
+      color = fetch_sprite_pixels(screen_x, bit, color, bgColorId);
     }
 
-    if (x >= 0 || ppu.pfc.fetching_window) {
+    if (screen_x >= 0 || ppu.pfc.fetching_window) {
       pixel_fifo_push(color);
       ppu.pfc.fifo_x++;
     }
@@ -223,21 +222,33 @@ export function pipeline_load_sprite_data(offset: number): void {
   const sprite_height = LCDC_OBJ_HEIGHT();
 
   for (let i = 0; i < ppu.fetched_entry_count; i++) {
-    let ty = (cur_y + 16 - ppu.fetched_entries[i].y) * 2;
+    const sprite = ppu.fetched_entries[i];
 
-    if (ppu.fetched_entries[i].f_y_flip) {
-      ty = sprite_height * 2 - 2 - ty;
+    let row = cur_y + 16 - sprite.y;
+
+    if (row < 0 || row >= sprite_height) {
+      continue;
     }
 
-    let tile_index = ppu.fetched_entries[i].tile;
+    if (sprite.f_y_flip) {
+      row = sprite_height - 1 - row;
+    }
+
+    let tile_index = sprite.tile;
 
     if (sprite_height === 16) {
       tile_index &= ~1;
+
+      if (row >= 8) {
+        tile_index++;
+        row -= 8;
+      }
     }
 
-    ppu.pfc.fetch_entry_data[i * 2 + offset] = ppu_vram_read(
-      0x8000 + tile_index * 16 + ty + offset,
-    );
+    const ty = row * 2;
+    const addr = 0x8000 + tile_index * 16 + ty + offset;
+
+    ppu.pfc.fetch_entry_data[i * 2 + offset] = ppu_vram_read(addr);
   }
 }
 

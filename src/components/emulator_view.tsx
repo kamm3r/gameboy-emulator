@@ -6,6 +6,7 @@ import {
   gamepad_set_button,
 } from "@/lib/gamepad";
 import { useEmu } from "@/hooks/use_emu";
+import { useEmulatorAudio } from "@/hooks/use_emulator_audio";
 
 type EmulatorViewProps = {
   rom_name: string;
@@ -24,6 +25,7 @@ const KEY_MAP: Record<string, gamepad_button> = {
 };
 
 export function EmulatorView({ rom_name }: EmulatorViewProps) {
+  useEmulatorAudio();
   const emu = useEmu();
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
