@@ -1,10 +1,26 @@
 import { useEffect, useRef } from "react";
 import { emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
+import {
+  gamepad_button,
+  gamepad_set_button,
+} from "@/lib/gamepad";
 import { useEmu } from "@/hooks/use_emu";
 
 type EmulatorViewProps = {
   rom_name: string;
+};
+
+const KEY_MAP: Record<string, gamepad_button> = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  KeyZ: "a",
+  KeyX: "b",
+  Enter: "start",
+  ShiftRight: "select",
+  ShiftLeft: "select",
 };
 
 export function EmulatorView({ rom_name }: EmulatorViewProps) {
@@ -30,6 +46,30 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
   useEffect(() => {
     ui_update();
   }, [emu.current_frame]);
+
+  useEffect(() => {
+    function on_key_down(e: KeyboardEvent) {
+      const btn = KEY_MAP[e.code];
+      if (!btn) return;
+      e.preventDefault();
+      gamepad_set_button(btn, true);
+    }
+
+    function on_key_up(e: KeyboardEvent) {
+      const btn = KEY_MAP[e.code];
+      if (!btn) return;
+      e.preventDefault();
+      gamepad_set_button(btn, false);
+    }
+
+    window.addEventListener("keydown", on_key_down);
+    window.addEventListener("keyup", on_key_up);
+
+    return () => {
+      window.removeEventListener("keydown", on_key_down);
+      window.removeEventListener("keyup", on_key_up);
+    };
+  }, []);
 
   const has_rom = Boolean(rom_name);
   const can_start = has_rom && !emu.running;
@@ -60,6 +100,8 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
           className="block bg-black [image-rendering:pixelated]"
         />
       </div>
+
+      <GamepadControls />
 
       <div className="flex gap-2">
         <button
@@ -105,6 +147,100 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
         <div>
           <span className="text-zinc-500">frame</span> {emu.current_frame}
         </div>
+      </div>
+
+      <div className="font-mono text-xs text-zinc-500 leading-5">
+        <div className="mb-1 text-zinc-400">keyboard</div>
+        <div>arrows — d-pad</div>
+        <div>z — a</div>
+        <div>x — b</div>
+        <div>enter — start</div>
+        <div>shift — select</div>
+      </div>
+    </div>
+  );
+}
+
+type PadButtonProps = {
+  button: gamepad_button;
+  label: string;
+  className?: string;
+};
+
+function PadButton({ button, label, className = "" }: PadButtonProps) {
+  function press(e: React.PointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    gamepad_set_button(button, true);
+  }
+
+  function release(e: React.PointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    gamepad_set_button(button, false);
+  }
+
+  return (
+    <button
+      type="button"
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onPointerLeave={release}
+      onContextMenu={(e) => e.preventDefault()}
+      className={
+        "select-none touch-none flex items-center justify-center " +
+        "bg-zinc-800 text-zinc-200 font-medium " +
+        "active:bg-zinc-600 active:scale-95 transition-transform " +
+        className
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+function GamepadControls() {
+  return (
+    <div className="flex items-center justify-between gap-8 py-4">
+      {/* d-pad */}
+      <div className="grid grid-cols-3 grid-rows-3 gap-1 w-36 h-36">
+        <div />
+        <PadButton button="up" label="▲" className="rounded-t-md" />
+        <div />
+        <PadButton button="left" label="◀" className="rounded-l-md" />
+        <div className="bg-zinc-800" />
+        <PadButton button="right" label="▶" className="rounded-r-md" />
+        <div />
+        <PadButton button="down" label="▼" className="rounded-b-md" />
+        <div />
+      </div>
+
+      {/* start / select */}
+      <div className="flex gap-4">
+        <PadButton
+          button="select"
+          label="select"
+          className="h-8 w-20 rounded-full text-xs rotate-[-25deg]"
+        />
+        <PadButton
+          button="start"
+          label="start"
+          className="h-8 w-20 rounded-full text-xs rotate-[-25deg]"
+        />
+      </div>
+
+      {/* a / b */}
+      <div className="flex items-center gap-4 rotate-[-25deg]">
+        <PadButton
+          button="b"
+          label="B"
+          className="h-16 w-16 rounded-full bg-red-900 active:bg-red-700 text-white text-lg"
+        />
+        <PadButton
+          button="a"
+          label="A"
+          className="h-16 w-16 rounded-full bg-red-900 active:bg-red-700 text-white text-lg"
+        />
       </div>
     </div>
   );

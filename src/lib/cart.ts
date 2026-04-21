@@ -37,6 +37,10 @@ type cartridge_context = {
 
   battery: boolean;
   need_save: boolean;
+
+  rtc_register: number; // 0x08..0x0C when an RTC register is selected, else -1
+  rtc_latch_state: number; // last value written to 0x6000-0x7FFF for latch sequence
+  rtc_regs: Uint8Array; // 5 bytes: S, M, H, DL, DH
 };
 
 const ctx: cartridge_context = {
@@ -73,6 +77,10 @@ const ctx: cartridge_context = {
 
   battery: false,
   need_save: false,
+
+  rtc_register: -1,
+  rtc_latch_state: 0xff,
+  rtc_regs: new Uint8Array(5),
 };
 
 const ROM_TYPES: string[] = [
@@ -228,40 +236,48 @@ function get_rom_bank_count(): number {
 function normalize_mbc1_bank(bank: number): number {
   const romBanks = get_rom_bank_count();
   let out = bank % romBanks;
-
-  if ((out & 0x1f) === 0) {
-    out += 1;
-  }
-
+  if ((out & 0x1f) === 0) out += 1;
   out %= romBanks;
   return out;
 }
 
-function update_rom_bank(): void {
-  let bank = ctx.rom_bank_value & 0x1f;
-  if (bank === 0) bank = 1;
+function normalize_mbc3_bank(bank: number): number {
+  const romBanks = get_rom_bank_count();
+  // Only $00 -> $01 remap (full 7-bit compare, but MBC3 mask is already 7-bit)
+  let out = bank & 0x7f;
+  if (out === 0) out = 1;
+  return out % romBanks;
+}
 
-  if (!ctx.ram_banking) {
-    bank |= (ctx.ram_bank_value & 0x03) << 5;
+function update_rom_bank(): void {
+  let bank: number;
+
+  if (cart_mbc3()) {
+    bank = normalize_mbc3_bank(ctx.rom_bank_value);
+  } else {
+    // MBC1
+    let b = ctx.rom_bank_value & 0x1f;
+    if (b === 0) b = 1;
+    if (!ctx.ram_banking) {
+      b |= (ctx.ram_bank_value & 0x03) << 5;
+    }
+    bank = normalize_mbc1_bank(b);
   }
 
-  bank = normalize_mbc1_bank(bank);
-
   const start = 0x4000 * bank;
-  const end = start + 0x4000;
-  ctx.rom_bank_x = ctx.rom_data.slice(start, end);
+  ctx.rom_bank_x = ctx.rom_data.slice(start, start + 0x4000);
 }
 
 function get_ram_bank_count(): number {
   switch (ctx.header.ram_size) {
     case 0x02:
-      return 1;
+      return 1; // 8 KiB
     case 0x03:
-      return 4;
+      return 4; // 32 KiB
     case 0x04:
-      return 16;
+      return 16; // 128 KiB (MBC5 only in practice)
     case 0x05:
-      return 8;
+      return 8; // 64 KiB (MBC30, Japanese Pokémon Crystal)
     default:
       return 0;
   }
@@ -272,11 +288,32 @@ export function cart_need_save(): boolean {
 }
 
 export function cart_mbc1(): boolean {
-  return BETWEEN(ctx.header.type, 1, 3);
+  return BETWEEN(ctx.header.type, 0x01, 0x03);
+}
+
+export function cart_mbc3(): boolean {
+  return BETWEEN(ctx.header.type, 0x0f, 0x13);
+}
+
+function has_mbc(): boolean {
+  return cart_mbc1() || cart_mbc3();
 }
 
 export function cart_battery(): boolean {
-  return ctx.header.type === 3;
+  // Types with battery-backed save RAM
+  const t = ctx.header.type;
+  return (
+    t === 0x03 || // MBC1+RAM+BATTERY
+    t === 0x06 || // MBC2+BATTERY (not yet supported)
+    t === 0x0f || // MBC3+TIMER+BATTERY
+    t === 0x10 || // MBC3+TIMER+RAM+BATTERY
+    t === 0x13 // MBC3+RAM+BATTERY
+  );
+}
+
+function cart_has_timer(): boolean {
+  const t = ctx.header.type;
+  return t === 0x0f || t === 0x10;
 }
 
 export function cart_lic_name(): string {
@@ -316,19 +353,23 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
 
   ctx.header = parse_rom_header(ctx.rom_data);
 
+  const t = ctx.header.type;
   const supported =
-    ctx.header.type === 0x00 ||
-    (ctx.header.type >= 0x01 && ctx.header.type <= 0x03);
+    t === 0x00 ||
+    (t >= 0x01 && t <= 0x03) || // MBC1 family
+    (t >= 0x0f && t <= 0x13); // MBC3 family
 
   if (!supported) {
     console.error(
-      `unsupported cartridge type: 0x${ctx.header.type
+      `unsupported cartridge type: 0x${t
         .toString(16)
         .padStart(2, "0")} (${cart_type_name()})`,
     );
     return false;
   }
-
+  ctx.rtc_register = -1;
+  ctx.rtc_latch_state = 0xff;
+  ctx.rtc_regs.fill(0);
   ctx.battery = cart_battery();
   ctx.need_save = false;
   ctx.ram_enabled = false;
@@ -364,7 +405,7 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
     formatter(
       "\t Checksum : %2.2X (%s)",
       ctx.header.checksum,
-      ((checksum & 0xff) === ctx.header.checksum) ? "PASSED" : "FAILED",
+      (checksum & 0xff) === ctx.header.checksum ? "PASSED" : "FAILED",
     ),
   );
 
@@ -421,7 +462,7 @@ export function cart_battery_save(): void {
 export function cart_read(address: number): number {
   address &= 0xffff;
 
-  if (!cart_mbc1()) {
+  if (!has_mbc()) {
     return ctx.rom_data[address] ?? 0xff;
   }
 
@@ -429,15 +470,19 @@ export function cart_read(address: number): number {
     return ctx.rom_data[address] ?? 0xff;
   }
 
-  if (address >= 0x4000 && address < 0x8000) {
+  if (address < 0x8000) {
     return ctx.rom_bank_x[address - 0x4000] ?? 0xff;
   }
 
   if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled || !ctx.ram_bank) {
-      return 0xff;
+    if (!ctx.ram_enabled) return 0xff;
+
+    if (cart_mbc3() && ctx.rtc_register >= 0x08 && ctx.rtc_register <= 0x0c) {
+      // RTC read (stub: return latched register value)
+      return ctx.rtc_regs[ctx.rtc_register - 0x08] ?? 0xff;
     }
 
+    if (!ctx.ram_bank) return 0xff;
     return ctx.ram_bank[address - 0xa000] ?? 0xff;
   }
 
@@ -448,48 +493,74 @@ export function cart_write(address: number, value: number): void {
   address &= 0xffff;
   value &= 0xff;
 
-  if (!cart_mbc1()) {
-    return;
-  }
+  if (!has_mbc()) return;
 
+  // $0000-$1FFF: RAM (and RTC) enable
   if (address < 0x2000) {
     ctx.ram_enabled = (value & 0x0f) === 0x0a;
     return;
   }
 
-  if (address >= 0x2000 && address < 0x4000) {
-    let bank = value & 0x1f;
-    if (bank === 0) bank = 1;
-
-    ctx.rom_bank_value = bank;
+  // $2000-$3FFF: ROM bank number
+  if (address < 0x4000) {
+    if (cart_mbc3()) {
+      let bank = value & 0x7f;
+      if (bank === 0) bank = 1;
+      ctx.rom_bank_value = bank;
+    } else {
+      let bank = value & 0x1f;
+      if (bank === 0) bank = 1;
+      ctx.rom_bank_value = bank;
+    }
     update_rom_bank();
     return;
   }
 
-  if (address >= 0x4000 && address < 0x6000) {
-    ctx.ram_bank_value = value & 0x03;
-
-    if (ctx.ram_banking) {
-      if (cart_need_save()) {
-        cart_battery_save();
+  // $4000-$5FFF: RAM bank / RTC register select
+  if (address < 0x6000) {
+    if (cart_mbc3()) {
+      const v = value & 0x0f;
+      if (v <= 0x03) {
+        // Select RAM bank
+        if (cart_need_save()) cart_battery_save();
+        ctx.ram_bank_value = v;
+        ctx.ram_bank = ctx.ram_banks[v] ?? null;
+        ctx.rtc_register = -1;
+      } else if (v >= 0x08 && v <= 0x0c) {
+        // Select RTC register (RAM bank not accessible)
+        ctx.rtc_register = v;
       }
-
-      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
+      // Other values: behavior undefined; ignore
+      return;
     }
 
+    // MBC1
+    ctx.ram_bank_value = value & 0x03;
+    if (ctx.ram_banking) {
+      if (cart_need_save()) cart_battery_save();
+      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
+    }
     update_rom_bank();
     return;
   }
 
-  if (address >= 0x6000 && address < 0x8000) {
+  // $6000-$7FFF: Banking mode (MBC1) / RTC latch (MBC3)
+  if (address < 0x8000) {
+    if (cart_mbc3()) {
+      // Latch current RTC on 0 -> 1 transition
+      if (ctx.rtc_latch_state === 0x00 && value === 0x01) {
+        // Stub: no real clock; keep registers as-is.
+        // A full implementation would snapshot wall-clock time here.
+      }
+      ctx.rtc_latch_state = value;
+      return;
+    }
+
     ctx.banking_mode = value & 1;
     ctx.ram_banking = ctx.banking_mode === 1;
 
     if (ctx.ram_banking) {
-      if (cart_need_save()) {
-        cart_battery_save();
-      }
-
+      if (cart_need_save()) cart_battery_save();
       ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
     } else {
       ctx.ram_bank = ctx.ram_banks[0] ?? null;
@@ -499,15 +570,18 @@ export function cart_write(address: number, value: number): void {
     return;
   }
 
+  // $A000-$BFFF: External RAM or RTC register write
   if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled || !ctx.ram_bank) {
+    if (!ctx.ram_enabled) return;
+
+    if (cart_mbc3() && ctx.rtc_register >= 0x08 && ctx.rtc_register <= 0x0c) {
+      ctx.rtc_regs[ctx.rtc_register - 0x08] = value;
+      if (ctx.battery && cart_has_timer()) ctx.need_save = true;
       return;
     }
 
+    if (!ctx.ram_bank) return;
     ctx.ram_bank[address - 0xa000] = value;
-
-    if (ctx.battery) {
-      ctx.need_save = true;
-    }
+    if (ctx.battery) ctx.need_save = true;
   }
 }

@@ -32,7 +32,7 @@ export function dma_tick(): void {
     return;
   }
 
-  ppu_oam_write(ctx.byte, bus_read(ctx.value * 0x100 + ctx.byte));
+  ppu_oam_write(0xfe00 + ctx.byte, bus_read(ctx.value * 0x100 + ctx.byte));
 
   ctx.byte++;
 
