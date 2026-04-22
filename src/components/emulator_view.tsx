@@ -88,6 +88,7 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start gap-8">
+        <div className="flex flex-col gap-2">
         <canvas
           ref={canvas_ref}
           className="block bg-black [image-rendering:pixelated]"
@@ -96,12 +97,6 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
             aspectRatio: "160 / 144",
           }}
         />
-
-        <canvas
-          ref={debug_canvas_ref}
-          className="block bg-black [image-rendering:pixelated]"
-        />
-      </div>
 
       <GamepadControls />
 
@@ -134,6 +129,13 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
         >
           stop
         </button>
+      </div>
+      </div>
+
+        <canvas
+          ref={debug_canvas_ref}
+          className="block bg-black [image-rendering:pixelated]"
+        />
       </div>
 
       <div className="font-mono text-sm text-zinc-400 leading-6">
