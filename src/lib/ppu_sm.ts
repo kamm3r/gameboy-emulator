@@ -108,32 +108,42 @@ export function load_line_sprites(): void {
 
       ppu.line_entry_array[ppu.line_sprite_count++] = entry;
 
-      if (!ppu.line_sprites || ppu.line_sprites.entry.x > e.x) {
+      if (!ppu.line_sprites) {
+        ppu.line_sprites = entry;
+        continue;
+      }
+
+      const head = ppu.line_sprites;
+      const head_should_come_after =
+        head.entry.x > e.x ||
+        (head.entry.x === e.x && head.entry.oam_index > e.oam_index);
+
+      if (head_should_come_after) {
         entry.next = ppu.line_sprites;
         ppu.line_sprites = entry;
         continue;
       }
 
-      let le = ppu.line_sprites;
-      let prev: oam_line_entry | null = le;
+      let prev: oam_line_entry = ppu.line_sprites;
+      let le: oam_line_entry | null = ppu.line_sprites.next;
 
       while (le) {
-        if (le.entry.x > e.x) {
-          if (prev) {
-            prev.next = entry;
-          }
+        const le_should_come_after =
+          le.entry.x > e.x ||
+          (le.entry.x === e.x && le.entry.oam_index > e.oam_index);
 
+        if (le_should_come_after) {
+          prev.next = entry;
           entry.next = le;
-          break;
-        }
-
-        if (!le.next) {
-          le.next = entry;
           break;
         }
 
         prev = le;
         le = le.next;
+      }
+
+      if (!le) {
+        prev.next = entry;
       }
     }
   }
@@ -196,19 +206,29 @@ export function ppu_mode_vblank(): void {
   }
 }
 
-const target_frame_time = Math.floor(1000 / 60);
-let prev_frame_time = 0;
-let start_timer = 0;
+// Frame timing - removed busy-wait delay
+// Let the emulator loop handle timing instead
 let frame_count = 0;
+let fps_timer_start = 0;
 
-function get_ticks(): number {
-  return Date.now();
-}
+function update_fps(): void {
+  const now = performance.now();
 
-function delay(ms: number): void {
-  const end = Date.now() + ms;
+  if (fps_timer_start === 0) {
+    fps_timer_start = now;
+  }
 
-  while (Date.now() < end) {}
+  frame_count++;
+
+  if (now - fps_timer_start >= 1000) {
+    console.log(`FPS: ${frame_count}`);
+    frame_count = 0;
+    fps_timer_start = now;
+
+    if (cart_need_save()) {
+      cart_battery_save();
+    }
+  }
 }
 
 export function ppu_mode_hblank(): void {
@@ -228,27 +248,8 @@ export function ppu_mode_hblank(): void {
 
       ppu.current_frame++;
 
-      const end = get_ticks();
-      const frame_time = end - prev_frame_time;
-
-      if (frame_time < target_frame_time) {
-        delay(target_frame_time - frame_time);
-      }
-
-      if (end - start_timer >= 1000) {
-        const fps = frame_count;
-        start_timer = end;
-        frame_count = 0;
-
-        console.log(`FPS: ${fps}`);
-
-        if (cart_need_save()) {
-          cart_battery_save();
-        }
-      }
-
-      frame_count++;
-      prev_frame_time = get_ticks();
+      // FPS counting without blocking
+      update_fps();
     } else {
       lcds_mode_set(MODE_OAM);
       ppu.line_rendered = false;
@@ -285,4 +286,8 @@ export function ppu_sm_init(): void {
   ppu.line_rendered = false;
   ppu.window_was_rendered = false;
   lcd_set_mode(MODE_OAM);
+
+  // Reset FPS timer
+  frame_count = 0;
+  fps_timer_start = 0;
 }

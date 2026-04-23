@@ -1,59 +1,73 @@
-// public/audio-worklet.js
 class EmulatorAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    // Ring buffers for left/right channels
-    this.capacity = 48000; // ~1s at 48kHz
+
+    this.capacity = 48000 * 2;
     this.left = new Float32Array(this.capacity);
     this.right = new Float32Array(this.capacity);
-    this.readIdx = 0;
-    this.writeIdx = 0;
-    this.size = 0;
+    this.readIndex = 0;
+    this.writeIndex = 0;
+    this.available = 0;
+    this.underflows = 0;
+    this.processCounter = 0;
 
     this.port.onmessage = (e) => {
-      const msg = e.data;
-      if (msg.type === "samples") {
-        this.pushSamples(msg.left, msg.right);
-      } else if (msg.type === "clear") {
-        this.readIdx = 0;
-        this.writeIdx = 0;
-        this.size = 0;
+      const data = e.data;
+
+      if (data.type === "clear") {
+        this.readIndex = 0;
+        this.writeIndex = 0;
+        this.available = 0;
+        return;
+      }
+
+      if (data.type === "samples") {
+        const inL = data.left;
+        const inR = data.right;
+        const n = Math.min(inL.length, inR.length);
+
+        for (let i = 0; i < n; i++) {
+          if (this.available >= this.capacity) {
+            this.readIndex = (this.readIndex + 1) % this.capacity;
+            this.available--;
+          }
+
+          this.left[this.writeIndex] = inL[i];
+          this.right[this.writeIndex] = inR[i];
+          this.writeIndex = (this.writeIndex + 1) % this.capacity;
+          this.available++;
+        }
       }
     };
   }
 
-  pushSamples(left, right) {
-    const n = Math.min(left.length, right.length);
-    for (let i = 0; i < n; i++) {
-      if (this.size >= this.capacity) {
-        // Drop oldest sample to avoid unbounded latency
-        this.readIdx = (this.readIdx + 1) % this.capacity;
-        this.size--;
-      }
-      this.left[this.writeIdx] = left[i];
-      this.right[this.writeIdx] = right[i];
-      this.writeIdx = (this.writeIdx + 1) % this.capacity;
-      this.size++;
-    }
-  }
-
-  process(_inputs, outputs) {
+  process(inputs, outputs) {
     const output = outputs[0];
-    const outL = output[0];
-    const outR = output[1] ?? output[0];
-    const frames = outL.length;
+    const leftOut = output[0];
+    const rightOut = output[1];
+    const frames = leftOut.length;
 
     for (let i = 0; i < frames; i++) {
-      if (this.size > 0) {
-        outL[i] = this.left[this.readIdx];
-        outR[i] = this.right[this.readIdx];
-        this.readIdx = (this.readIdx + 1) % this.capacity;
-        this.size--;
+      if (this.available > 0) {
+        leftOut[i] = this.left[this.readIndex];
+        rightOut[i] = this.right[this.readIndex];
+        this.readIndex = (this.readIndex + 1) % this.capacity;
+        this.available--;
       } else {
-        // Underrun: output silence
-        outL[i] = 0;
-        outR[i] = 0;
+        leftOut[i] = 0;
+        rightOut[i] = 0;
+        this.underflows++;
       }
+    }
+
+    this.processCounter++;
+    if ((this.processCounter & 63) === 0) {
+      this.port.postMessage({
+        type: "status",
+        available: this.available,
+        underflows: this.underflows,
+        capacity: this.capacity,
+      });
     }
 
     return true;

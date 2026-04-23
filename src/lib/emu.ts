@@ -4,7 +4,7 @@ import { dma_tick } from "@/lib/dma";
 import { ppu_get_context, ppu_init } from "@/lib/ppu";
 import { ppu_tick, ppu_sm_init } from "@/lib/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
-import { audio_init, audio_tick } from "@/lib/audio";
+import { audio_init, audio_tick } from "./audio/apu";
 
 export type emu_context = {
   paused: boolean;
@@ -33,9 +33,6 @@ const listeners = new Set<emu_listener>();
 let initialized = false;
 let loop_handle: ReturnType<typeof setTimeout> | null = null;
 
-const max_cpu_steps_per_slice = 2000;
-const max_slice_ms = 8;
-
 let ctx_snapshot: Readonly<emu_context> = Object.freeze({ ...ctx });
 
 const server_snapshot: Readonly<emu_context> = Object.freeze({
@@ -47,6 +44,9 @@ const server_snapshot: Readonly<emu_context> = Object.freeze({
   rom_loaded: false,
   rom_name: null,
 });
+
+const MAX_CPU_STEPS_PER_SLICE = 2000;
+const MAX_SLICE_MS = 8;
 
 function get_now(): number {
   return typeof performance !== "undefined"
@@ -101,8 +101,8 @@ function run_loop(): void {
     ctx.running &&
     !ctx.paused &&
     !ctx.die &&
-    steps < max_cpu_steps_per_slice &&
-    get_now() - start_time < max_slice_ms
+    steps < MAX_CPU_STEPS_PER_SLICE &&
+    get_now() - start_time < MAX_SLICE_MS
   ) {
     if (!cpu_step()) {
       console.log("cpu stopped");
@@ -110,6 +110,11 @@ function run_loop(): void {
       emit_update();
       return;
     }
+
+    // CRITICAL: Tick system after each CPU instruction
+    // If cpu_step() already calls emu_cycles() internally, remove this
+    // Average Game Boy instruction is ~2-3 M-cycles
+    emu_cycles(2);
 
     steps++;
 
@@ -243,20 +248,23 @@ export function emu_stop(): void {
   emit_update();
 }
 
+/**
+ * Run system forward by cpu_cycles machine cycles.
+ * Each machine cycle = 4 T-states (timer/ppu/audio ticks).
+ */
 export function emu_cycles(cpu_cycles: number): void {
   for (let i = 0; i < cpu_cycles; i++) {
     for (let n = 0; n < 4; n++) {
       ctx.ticks++;
       timer_tick();
       ppu_tick();
-      audio_init();
+      audio_tick();
     }
-
     dma_tick();
   }
 }
 
-export function emu_run(max_cpu_steps = max_cpu_steps_per_slice): boolean {
+export function emu_run(max_cpu_steps = MAX_CPU_STEPS_PER_SLICE): boolean {
   if (!ctx.running || ctx.paused || ctx.die) {
     return false;
   }
@@ -268,6 +276,8 @@ export function emu_run(max_cpu_steps = max_cpu_steps_per_slice): boolean {
       emit_update();
       return false;
     }
+
+    emu_cycles(2);
 
     const frame = ppu_get_context().current_frame;
 

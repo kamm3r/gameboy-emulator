@@ -3,7 +3,7 @@ import { timer_read, timer_write } from "@/lib/timer";
 import { cpu_get_int_flags, cpu_set_int_flags } from "@/lib/cpu";
 import { gamepad_get_output, gamepad_set_sel } from "@/lib/gamepad";
 import { lcd_read, lcd_write } from "@/lib/lcd";
-import { audio_read, audio_write } from "./audio";
+import { audio_read, audio_write } from "./audio/apu";
 
 const serialData = new Uint8Array(2);
 

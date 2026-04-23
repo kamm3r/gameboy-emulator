@@ -7,6 +7,7 @@ import {
 } from "@/lib/gamepad";
 import { useEmu } from "@/hooks/use_emu";
 import { useEmulatorAudio } from "@/hooks/use_emulator_audio";
+// import { frame_count } from "@/lib/ppu_sm";
 
 type EmulatorViewProps = {
   rom_name: string;
@@ -145,6 +146,9 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
         <div>
           <span className="text-zinc-500">status</span> {status}
         </div>
+        {/* <div>
+          <span className="text-zinc-500">fps</span> {frame_count}
+        </div> */}
         <div>
           <span className="text-zinc-500">ticks</span> {emu.ticks}
         </div>
