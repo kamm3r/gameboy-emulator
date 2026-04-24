@@ -6,14 +6,12 @@ import {
   audio_get_queued_sample_count,
 } from "@/lib/audio/queue";
 import {
-  audio_set_sample_rate,
   audio_set_max_buffered_samples,
+  audio_set_sample_rate,
 } from "@/lib/audio/apu";
+import { emu_set_audio_pump } from "@/lib/emu";
 
-const CHUNK_SIZE = 256;
-const PUMP_INTERVAL_MS = 4;
 const GAIN_VALUE = 0.3;
-const BUFFER_TIME_MS = 200;
 
 export function useEmulatorAudio() {
   const emu = useEmu();
@@ -21,34 +19,33 @@ export function useEmulatorAudio() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
-  const pumpIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const workletAvailableRef = useRef(0);
+  const workletUnderflowsRef = useRef(0);
 
   const pumpSamples = useCallback(() => {
     const worklet = workletNodeRef.current;
-    if (!worklet) {
-      return;
-    }
+    if (!worklet) return;
 
+    // Pump all available samples, up to worklet capacity
     const available = audio_get_queued_sample_count();
-    if (available < CHUNK_SIZE) {
-      return;
-    }
+    if (available <= 0) return;
 
     const { left, right } = audio_consume_samples(available);
 
-    if (left.length === 0) {
-      return;
-    }
+    if (left.length === 0) return;
 
     worklet.port.postMessage(
-      {
-        type: "samples",
-        left,
-        right,
-      },
+      { type: "samples", left, right },
       [left.buffer, right.buffer],
     );
   }, []);
+
+  // Register pump with emulator
+  useEffect(() => {
+    emu_set_audio_pump(pumpSamples);
+    return () => emu_set_audio_pump(null);
+  }, [pumpSamples]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,11 +53,8 @@ export function useEmulatorAudio() {
     async function initAudio() {
       const AudioCtx =
         window.AudioContext ||
-        (
-          window as typeof window & {
-            webkitAudioContext?: typeof AudioContext;
-          }
-        ).webkitAudioContext;
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
 
       if (!AudioCtx) {
         console.warn("Web Audio API not supported");
@@ -69,7 +63,7 @@ export function useEmulatorAudio() {
 
       try {
         const audioCtx = new AudioCtx({
-          latencyHint: "interactive",
+          latencyHint: "playback", // higher latency, more stable
           sampleRate: 48000,
         });
 
@@ -97,16 +91,28 @@ export function useEmulatorAudio() {
         workletNode.connect(gain);
         gain.connect(audioCtx.destination);
 
+        workletNode.port.onmessage = (e: MessageEvent) => {
+          const data = e.data as
+            | {
+                type: "status";
+                available: number;
+                underflows: number;
+              }
+            | undefined;
+
+          if (!data || data.type !== "status") return;
+
+          workletAvailableRef.current = data.available;
+          workletUnderflowsRef.current = data.underflows;
+        };
+
         audioCtxRef.current = audioCtx;
         workletNodeRef.current = workletNode;
         gainRef.current = gain;
 
         audio_set_sample_rate(audioCtx.sampleRate);
-        audio_set_max_buffered_samples(
-          Math.floor(audioCtx.sampleRate * (BUFFER_TIME_MS / 1000)),
-        );
-
-        pumpIntervalRef.current = setInterval(pumpSamples, PUMP_INTERVAL_MS);
+        // 500ms buffer in emulator queue to absorb jitter
+        audio_set_max_buffered_samples(Math.floor(audioCtx.sampleRate * 0.5));
 
         const resume = async () => {
           if (audioCtx.state === "suspended") {
@@ -126,30 +132,29 @@ export function useEmulatorAudio() {
           window.removeEventListener("keydown", resume);
         };
 
-        (workletNode as unknown as { _cleanup: () => void })._cleanup =
-          cleanupListeners;
+        return cleanupListeners;
       } catch (err) {
         console.error("Audio init failed:", err);
       }
     }
 
-    void initAudio();
+    let cleanup: (() => void) | undefined;
+
+    void initAudio().then((fn) => {
+      cleanup = fn;
+    });
 
     return () => {
       cancelled = true;
-
-      if (pumpIntervalRef.current !== null) {
-        clearInterval(pumpIntervalRef.current);
-        pumpIntervalRef.current = null;
-      }
+      cleanup?.();
 
       audio_clear_samples();
 
-      const worklet = workletNodeRef.current as
-        | (AudioWorkletNode & { _cleanup?: () => void })
-        | null;
-
-      worklet?._cleanup?.();
+      try {
+        workletNodeRef.current?.port.postMessage({ type: "clear" });
+      } catch {
+        // ignore
+      }
 
       try {
         workletNodeRef.current?.disconnect();
@@ -172,18 +177,14 @@ export function useEmulatorAudio() {
       workletNodeRef.current = null;
       gainRef.current = null;
     };
-  }, [pumpSamples]);
+  }, []);
 
   useEffect(() => {
     const isRunning = emu.running && !emu.paused;
 
     if (!isRunning) {
       audio_clear_samples();
-
-      const worklet = workletNodeRef.current;
-      if (worklet) {
-        worklet.port.postMessage({ type: "clear" });
-      }
+      workletNodeRef.current?.port.postMessage({ type: "clear" });
     }
   }, [emu.running, emu.paused]);
 

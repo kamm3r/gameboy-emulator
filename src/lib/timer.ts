@@ -1,3 +1,4 @@
+import { audio_on_div_falling_edge } from "@/lib/audio/apu";
 import { cpu_request_interrupt } from "@/lib/cpu";
 
 export const IT_TIMER = 0x04;
@@ -31,20 +32,28 @@ export function timer_tick(): void {
   const prev_div = ctx.div;
   ctx.div = (ctx.div + 1) & 0xffff;
 
+  if ((prev_div & (1 << 4)) !== 0 && (ctx.div & (1 << 4)) === 0) {
+    audio_on_div_falling_edge();
+  }
+
   let timer_update = false;
 
   switch (ctx.tac & 0b11) {
     case 0b00:
-      timer_update = (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
+      timer_update =
+        (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
       break;
     case 0b01:
-      timer_update = (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
+      timer_update =
+        (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
       break;
     case 0b10:
-      timer_update = (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
+      timer_update =
+        (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
       break;
     case 0b11:
-      timer_update = (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
+      timer_update =
+        (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
       break;
   }
 
@@ -60,15 +69,25 @@ export function timer_tick(): void {
 
 export function timer_write(address: number, value: number): void {
   switch (address) {
-    case 0xff04:
+    case 0xff04: {
+      const prev_div = ctx.div;
       ctx.div = 0;
+
+      if ((prev_div & (1 << 4)) !== 0) {
+        audio_on_div_falling_edge();
+      }
+
       break;
+    }
+
     case 0xff05:
       ctx.tima = value & 0xff;
       break;
+
     case 0xff06:
       ctx.tma = value & 0xff;
       break;
+
     case 0xff07:
       ctx.tac = value & 0x07;
       break;
@@ -86,5 +105,6 @@ export function timer_read(address: number): number {
     case 0xff07:
       return ctx.tac;
   }
+
   return 0;
 }

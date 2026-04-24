@@ -39,3 +39,4 @@ export const DUTY_PATTERNS = [
 ] as const;
 
 export const NOISE_DIVISORS = [8, 16, 32, 48, 64, 80, 96, 112];
+export const CLOCKS_PER_M_CYCLE = 4;

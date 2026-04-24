@@ -80,10 +80,7 @@ export function calc_sweep_target(
   return negate ? period - delta : period + delta;
 }
 
-export function trigger_pulse(
-  ch: pulse_channel,
-  with_sweep: boolean,
-): void {
+export function trigger_pulse(ch: pulse_channel, with_sweep: boolean): void {
   ch.enabled = ch.dac_enabled;
 
   if (ch.length_counter === 0) {
@@ -119,7 +116,10 @@ export function pulse_output(ch: pulse_channel): number {
   }
 
   const bit = DUTY_PATTERNS[ch.duty][ch.duty_pos];
-  return bit ? ch.current_volume / 15 : 0;
+  // DAC: digital 0 -> analog +1, digital 15 -> analog -1
+  // After centering (subtracting "off" level): digital 0 -> 0, digital v -> -2v/15
+  // We use -v/15 as the normalized output (HPF will handle DC)
+  return bit ? -ch.current_volume / 15 : 0;
 }
 
 export function tick_pulse(ch: pulse_channel): void {

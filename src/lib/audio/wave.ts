@@ -58,8 +58,10 @@ export function trigger_wave(): void {
   }
 
   ch.freq_timer = wave_timer_reload(ch.period_value);
+  // Wave position starts at 0; first tick increments to 1 and reads lower nibble
+  // Sample latch is NOT refreshed on trigger - persists from previous operation
   ch.wave_pos = 0;
-  ch.sample_latch = (ctx.wave_ram[0] >> 4) & 0x0f;
+  // DO NOT touch sample_latch here!
 }
 
 export function wave_output(): number {
@@ -85,7 +87,8 @@ export function wave_output(): number {
       break;
   }
 
-  return sample / 15;
+  // DAC with negative slope, centered
+  return -(sample / 15);
 }
 
 export function tick_wave(): void {

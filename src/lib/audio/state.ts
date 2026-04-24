@@ -39,12 +39,27 @@ export type apu_context = {
   sample_cycle_accum: number;
   max_buffered_samples: number;
 
-  sample_queue_l: number[];
-  sample_queue_r: number[];
+  sample_queue_l: Float32Array;
+  sample_queue_r: Float32Array;
+  sample_queue_read: number;
+  sample_queue_write: number;
+  sample_queue_count: number;
 
   hpf_cap_l: number;
   hpf_cap_r: number;
 };
+
+function make_queue_buffers(capacity: number): {
+  l: Float32Array;
+  r: Float32Array;
+} {
+  return {
+    l: new Float32Array(capacity),
+    r: new Float32Array(capacity),
+  };
+}
+
+const initial_buffers = make_queue_buffers(DEFAULT_MAX_BUFFERED_SAMPLES);
 
 export const ctx: apu_context = {
   enabled: false,
@@ -62,8 +77,11 @@ export const ctx: apu_context = {
   cycles_per_sample: CPU_HZ / DEFAULT_SAMPLE_RATE,
   sample_cycle_accum: 0,
   max_buffered_samples: DEFAULT_MAX_BUFFERED_SAMPLES,
-  sample_queue_l: [],
-  sample_queue_r: [],
+  sample_queue_l: initial_buffers.l,
+  sample_queue_r: initial_buffers.r,
+  sample_queue_read: 0,
+  sample_queue_write: 0,
+  sample_queue_count: 0,
   hpf_cap_l: 0,
   hpf_cap_r: 0,
 };

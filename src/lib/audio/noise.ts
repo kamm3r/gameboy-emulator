@@ -78,8 +78,8 @@ export function noise_output(): number {
     return 0;
   }
 
-  const bit = ~ch.lfsr & 1;
-  return bit ? ch.current_volume / 15 : 0;
+  const bit = ch.lfsr & 1;
+  return bit ? -ch.current_volume / 15 : 0;
 }
 
 export function tick_noise(): void {

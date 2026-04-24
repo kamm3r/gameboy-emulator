@@ -1,7 +1,7 @@
 import { BIT } from "@/lib/common";
 import { noise_output } from "./noise";
 import { pulse_output } from "./pulse";
-import { trim_audio_queue } from "./queue";
+import { audio_push_sample } from "./queue";
 import { ctx } from "./state";
 import { wave_output } from "./wave";
 
@@ -31,9 +31,7 @@ function high_pass_right(input: number): number {
 
 export function mix_and_push_sample(): void {
   if (!ctx.enabled) {
-    ctx.sample_queue_l.push(0);
-    ctx.sample_queue_r.push(0);
-    trim_audio_queue();
+    audio_push_sample(0, 0);
     return;
   }
 
@@ -71,8 +69,9 @@ export function mix_and_push_sample(): void {
     right += ch4;
   }
 
-  const left_volume = ((ctx.nr50 >> 4) & 0x07) / 7;
-  const right_volume = (ctx.nr50 & 0x07) / 7;
+  // NR50 volume: 0-7 maps to 1/8 to 8/8
+  const left_volume = (1 + ((ctx.nr50 >> 4) & 0x07)) / 8;
+  const right_volume = (1 + (ctx.nr50 & 0x07)) / 8;
 
   left *= left_volume * 0.25;
   right *= right_volume * 0.25;
@@ -80,8 +79,5 @@ export function mix_and_push_sample(): void {
   left = high_pass_left(left);
   right = high_pass_right(right);
 
-  ctx.sample_queue_l.push(clamp_sample(left));
-  ctx.sample_queue_r.push(clamp_sample(right));
-
-  trim_audio_queue();
+  audio_push_sample(clamp_sample(left), clamp_sample(right));
 }

@@ -2,14 +2,13 @@ class EmulatorAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
 
-    this.capacity = 48000 * 2;
+    this.capacity = 48000 * 2; // 2 seconds
     this.left = new Float32Array(this.capacity);
     this.right = new Float32Array(this.capacity);
     this.readIndex = 0;
     this.writeIndex = 0;
     this.available = 0;
     this.underflows = 0;
-    this.processCounter = 0;
 
     this.port.onmessage = (e) => {
       const data = e.data;
@@ -60,15 +59,11 @@ class EmulatorAudioProcessor extends AudioWorkletProcessor {
       }
     }
 
-    this.processCounter++;
-    if ((this.processCounter & 63) === 0) {
-      this.port.postMessage({
-        type: "status",
-        available: this.available,
-        underflows: this.underflows,
-        capacity: this.capacity,
-      });
-    }
+    this.port.postMessage({
+      type: "status",
+      available: this.available,
+      underflows: this.underflows,
+    });
 
     return true;
   }

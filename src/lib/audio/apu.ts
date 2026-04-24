@@ -105,8 +105,7 @@ export function audio_init(options?: audio_options): void {
   ctx.max_buffered_samples =
     options?.max_buffered_samples ?? DEFAULT_MAX_BUFFERED_SAMPLES;
 
-  ctx.sample_queue_l.length = 0;
-  ctx.sample_queue_r.length = 0;
+  audio_clear_samples();
 
   ctx.hpf_cap_l = 0;
   ctx.hpf_cap_r = 0;
@@ -136,23 +135,27 @@ export function audio_set_max_buffered_samples(
 }
 
 export function audio_tick(): void {
-  apu_clock_frame_sequencer();
+  // CRITICAL: Set this based on your emulator's call frequency!
+  // - Use 1 if audio_tick is called once per CPU clock cycle (4.194304 MHz)
+  // - Use 4 if audio_tick is called once per CPU m-cycle (1.048576 MHz)
+  // Most GB emulators use m-cycles, so 4 is the default
+  const CLOCK_CYCLES_PER_TICK = 4;
 
-  if (ctx.enabled) {
-    tick_pulse(ctx.ch1);
-    tick_pulse(ctx.ch2);
-    tick_wave();
-    tick_noise();
+  for (let i = 0; i < CLOCK_CYCLES_PER_TICK; i++) {
+    if (ctx.enabled) {
+      tick_pulse(ctx.ch1);
+      tick_pulse(ctx.ch2);
+      tick_wave();
+      tick_noise();
+    }
   }
 
-  ctx.sample_cycle_accum += 1;
+  ctx.sample_cycle_accum += CLOCK_CYCLES_PER_TICK;
 
-  if (ctx.sample_cycle_accum >= ctx.cycles_per_sample) {
+  while (ctx.sample_cycle_accum >= ctx.cycles_per_sample) {
     ctx.sample_cycle_accum -= ctx.cycles_per_sample;
     mix_and_push_sample();
   }
-
-  apu_update_nr52();
 }
 
 export function audio_on_div_falling_edge(): void {
@@ -431,6 +434,8 @@ export function audio_debug_state() {
     nr51: ctx.nr51,
     nr52: ctx.nr52,
     queued: audio_get_queued_sample_count(),
+    sample_rate: ctx.sample_rate,
+    cycles_per_sample: ctx.cycles_per_sample,
     ch1_enabled: ctx.ch1.enabled,
     ch2_enabled: ctx.ch2.enabled,
     ch3_enabled: ctx.ch3.enabled,
