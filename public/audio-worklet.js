@@ -2,7 +2,7 @@ class EmulatorAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
 
-    this.capacity = 48000 * 2; // 2 seconds
+    this.capacity = Math.floor(sampleRate * 0.25);
     this.left = new Float32Array(this.capacity);
     this.right = new Float32Array(this.capacity);
     this.readIndex = 0;

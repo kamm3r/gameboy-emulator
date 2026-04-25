@@ -25,18 +25,38 @@ export function useEmulatorAudio() {
 
   const pumpSamples = useCallback(() => {
     const worklet = workletNodeRef.current;
-    if (!worklet) return;
+    const audioCtx = audioCtxRef.current;
 
-    // Pump all available samples, up to worklet capacity
+    if (!worklet || !audioCtx) {
+      return;
+    }
+
+    const targetBuffered = Math.floor(audioCtx.sampleRate * 0.1);
+    const needed = targetBuffered - workletAvailableRef.current;
+
+    if (needed <= 0) {
+      return;
+    }
+
     const available = audio_get_queued_sample_count();
-    if (available <= 0) return;
 
-    const { left, right } = audio_consume_samples(available);
+    if (available <= 0) {
+      return;
+    }
 
-    if (left.length === 0) return;
+    const count = Math.min(available, needed);
+    const { left, right } = audio_consume_samples(count);
+
+    if (left.length === 0) {
+      return;
+    }
 
     worklet.port.postMessage(
-      { type: "samples", left, right },
+      {
+        type: "samples",
+        left,
+        right,
+      },
       [left.buffer, right.buffer],
     );
   }, []);

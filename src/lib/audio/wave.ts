@@ -67,16 +67,13 @@ export function trigger_wave(): void {
 export function wave_output(): number {
   const ch = ctx.ch3;
 
-  if (!ch.enabled || !ch.dac_enabled) {
+  if (!ch.enabled || !ch.dac_enabled || ch.volume_code === 0) {
     return 0;
   }
 
   let sample = ch.sample_latch & 0x0f;
 
   switch (ch.volume_code) {
-    case 0:
-      sample = 0;
-      break;
     case 1:
       break;
     case 2:
@@ -88,7 +85,7 @@ export function wave_output(): number {
   }
 
   // DAC with negative slope, centered
-  return -(sample / 15);
+  return 1 - (sample / 15) * 2;
 }
 
 export function tick_wave(): void {

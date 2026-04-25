@@ -28,11 +28,7 @@ import {
 } from "./constants";
 import { frame_sequencer_tick } from "./frame-sequencer";
 import { mix_and_push_sample } from "./mixer";
-import {
-  make_noise_channel,
-  tick_noise,
-  trigger_noise,
-} from "./noise";
+import { make_noise_channel, tick_noise, trigger_noise } from "./noise";
 import {
   audio_clear_samples,
   audio_consume_samples,
@@ -135,19 +131,16 @@ export function audio_set_max_buffered_samples(
 }
 
 export function audio_tick(): void {
-  // CRITICAL: Set this based on your emulator's call frequency!
-  // - Use 1 if audio_tick is called once per CPU clock cycle (4.194304 MHz)
-  // - Use 4 if audio_tick is called once per CPU m-cycle (1.048576 MHz)
-  // Most GB emulators use m-cycles, so 4 is the default
-  const CLOCK_CYCLES_PER_TICK = 4;
+  // emu_cycles() calls audio_tick() once per CPU T-cycle.
+  const CLOCK_CYCLES_PER_TICK = 1;
 
-  for (let i = 0; i < CLOCK_CYCLES_PER_TICK; i++) {
-    if (ctx.enabled) {
-      tick_pulse(ctx.ch1);
-      tick_pulse(ctx.ch2);
-      tick_wave();
-      tick_noise();
-    }
+  apu_clock_frame_sequencer();
+
+  if (ctx.enabled) {
+    tick_pulse(ctx.ch1);
+    tick_pulse(ctx.ch2);
+    tick_wave();
+    tick_noise();
   }
 
   ctx.sample_cycle_accum += CLOCK_CYCLES_PER_TICK;
