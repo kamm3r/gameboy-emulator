@@ -69,6 +69,8 @@ function apu_update_nr52(): void {
 function apu_clock_frame_sequencer(): void {
   ctx.div_apu_counter++;
 
+  // Frame sequencer runs at 512 Hz.
+  // 4_194_304 / 512 = 8192 T-cycles.
   if (ctx.div_apu_counter < 8192) {
     return;
   }
@@ -131,9 +133,14 @@ export function audio_set_max_buffered_samples(
 }
 
 export function audio_tick(): void {
-  // emu_cycles() calls audio_tick() once per CPU T-cycle.
-  const CLOCK_CYCLES_PER_TICK = 1;
-
+  // IMPORTANT:
+  // emu_cycles() calls audio_tick() once per CPU T-cycle because it does:
+  //
+  // for each M-cycle:
+  //   for n = 0..3:
+  //     audio_tick()
+  //
+  // So this function must advance the APU by exactly 1 T-cycle.
   apu_clock_frame_sequencer();
 
   if (ctx.enabled) {
@@ -143,7 +150,7 @@ export function audio_tick(): void {
     tick_noise();
   }
 
-  ctx.sample_cycle_accum += CLOCK_CYCLES_PER_TICK;
+  ctx.sample_cycle_accum += 1;
 
   while (ctx.sample_cycle_accum >= ctx.cycles_per_sample) {
     ctx.sample_cycle_accum -= ctx.cycles_per_sample;
@@ -416,6 +423,7 @@ export function audio_write(address: number, value: number): void {
       if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
         ctx.wave_ram[address - WAVE_RAM_START] = value;
       }
+
       return;
   }
 }

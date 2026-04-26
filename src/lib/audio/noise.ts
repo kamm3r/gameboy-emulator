@@ -74,12 +74,14 @@ export function trigger_noise(): void {
 export function noise_output(): number {
   const ch = ctx.ch4;
 
-  if (!ch.enabled || !ch.dac_enabled) {
+  if (!ch.enabled || !ch.dac_enabled || ch.current_volume === 0) {
     return 0;
   }
 
-  const amp = ch.current_volume / 15;
-  return (ch.lfsr & 1) === 0 ? amp : -amp;
+  const digital = (ch.lfsr & 1) === 0 ? ch.current_volume : 0;
+
+  // Same DAC approximation as pulse.
+  return 1 - (digital / 15) * 2;
 }
 
 export function tick_noise(): void {

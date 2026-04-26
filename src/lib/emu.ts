@@ -89,8 +89,9 @@ function schedule_loop(): void {
 }
 
 // Game Boy: ~4194304 Hz / 59.7 FPS = ~70224 M-cycles per frame
-const CYCLES_PER_FRAME = 70224;
-const TARGET_FRAME_MS = 1000 / 60;
+const T_CYCLES_PER_FRAME = 70224;
+const GB_FRAME_RATE = 4_194_304 / T_CYCLES_PER_FRAME;
+const TARGET_FRAME_MS = 1000 / GB_FRAME_RATE;
 
 export function emu_cycles(cpu_cycles: number): void {
   for (let i = 0; i < cpu_cycles; i++) {
@@ -113,7 +114,7 @@ function run_one_frame(): void {
     ctx.running &&
     !ctx.paused &&
     !ctx.die &&
-    safety < CYCLES_PER_FRAME * 4
+    safety < T_CYCLES_PER_FRAME
   ) {
     const ok = cpu_step();
     if (!ok) {

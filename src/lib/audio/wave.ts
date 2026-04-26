@@ -58,10 +58,7 @@ export function trigger_wave(): void {
   }
 
   ch.freq_timer = wave_timer_reload(ch.period_value);
-  // Wave position starts at 0; first tick increments to 1 and reads lower nibble
-  // Sample latch is NOT refreshed on trigger - persists from previous operation
   ch.wave_pos = 0;
-  // DO NOT touch sample_latch here!
 }
 
 export function wave_output(): number {
@@ -84,7 +81,8 @@ export function wave_output(): number {
       break;
   }
 
-  // DAC with negative slope, centered
+  // Wave channel sample is already 4-bit digital.
+  // Approximate Game Boy DAC slope.
   return 1 - (sample / 15) * 2;
 }
 

@@ -11,7 +11,22 @@ import {
 } from "@/lib/audio/apu";
 import { emu_set_audio_pump } from "@/lib/emu";
 
-const GAIN_VALUE = 0.3;
+const GAIN_VALUE = 0.35;
+
+// Keep about this much audio queued inside the AudioWorklet.
+const TARGET_WORKLET_BUFFER_SECONDS = 0.1;
+
+// Main-thread pump interval. AudioWorklet renders every ~2.67ms at 48kHz,
+// so feeding every 8ms is stable without being too spammy.
+const PUMP_INTERVAL_MS = 8;
+
+type WorkletStatus = {
+  type: "status";
+  available: number;
+  underflows: number;
+  capacity?: number;
+  sampleRate?: number;
+};
 
 export function useEmulatorAudio() {
   const emu = useEmu();
@@ -31,7 +46,10 @@ export function useEmulatorAudio() {
       return;
     }
 
-    const targetBuffered = Math.floor(audioCtx.sampleRate * 0.1);
+    const targetBuffered = Math.floor(
+      audioCtx.sampleRate * TARGET_WORKLET_BUFFER_SECONDS,
+    );
+
     const needed = targetBuffered - workletAvailableRef.current;
 
     if (needed <= 0) {
@@ -61,16 +79,24 @@ export function useEmulatorAudio() {
     );
   }, []);
 
-  // Register pump with emulator
   useEffect(() => {
     emu_set_audio_pump(pumpSamples);
     return () => emu_set_audio_pump(null);
   }, [pumpSamples]);
 
   useEffect(() => {
-    let cancelled = false;
+    const id = window.setInterval(() => {
+      pumpSamples();
+    }, PUMP_INTERVAL_MS);
 
-    async function initAudio() {
+    return () => window.clearInterval(id);
+  }, [pumpSamples]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let cleanupListeners: (() => void) | undefined;
+
+    async function initAudio(): Promise<void> {
       const AudioCtx =
         window.AudioContext ||
         (window as typeof window & { webkitAudioContext?: typeof AudioContext })
@@ -83,7 +109,7 @@ export function useEmulatorAudio() {
 
       try {
         const audioCtx = new AudioCtx({
-          latencyHint: "playback", // higher latency, more stable
+          latencyHint: "playback",
           sampleRate: 48000,
         });
 
@@ -92,7 +118,13 @@ export function useEmulatorAudio() {
           return;
         }
 
-        await audioCtx.audioWorklet.addModule("/audio-worklet.js");
+        // Cache-bust in development because AudioWorklets can be cached hard.
+        const workletUrl =
+          process.env.NODE_ENV === "development"
+            ? `/audio-worklet.js?v=${Date.now()}`
+            : "/audio-worklet.js";
+
+        await audioCtx.audioWorklet.addModule(workletUrl);
 
         if (cancelled) {
           void audioCtx.close();
@@ -112,15 +144,11 @@ export function useEmulatorAudio() {
         gain.connect(audioCtx.destination);
 
         workletNode.port.onmessage = (e: MessageEvent) => {
-          const data = e.data as
-            | {
-                type: "status";
-                available: number;
-                underflows: number;
-              }
-            | undefined;
+          const data = e.data as WorkletStatus | undefined;
 
-          if (!data || data.type !== "status") return;
+          if (!data || data.type !== "status") {
+            return;
+          }
 
           workletAvailableRef.current = data.available;
           workletUnderflowsRef.current = data.underflows;
@@ -131,7 +159,9 @@ export function useEmulatorAudio() {
         gainRef.current = gain;
 
         audio_set_sample_rate(audioCtx.sampleRate);
-        // 500ms buffer in emulator queue to absorb jitter
+
+        // Queue in emulator side. This is not all sent to the worklet at once;
+        // pumpSamples() only sends enough to maintain target worklet latency.
         audio_set_max_buffered_samples(Math.floor(audioCtx.sampleRate * 0.5));
 
         const resume = async () => {
@@ -147,26 +177,20 @@ export function useEmulatorAudio() {
         window.addEventListener("pointerdown", resume, { passive: true });
         window.addEventListener("keydown", resume);
 
-        const cleanupListeners = () => {
+        cleanupListeners = () => {
           window.removeEventListener("pointerdown", resume);
           window.removeEventListener("keydown", resume);
         };
-
-        return cleanupListeners;
       } catch (err) {
         console.error("Audio init failed:", err);
       }
     }
 
-    let cleanup: (() => void) | undefined;
-
-    void initAudio().then((fn) => {
-      cleanup = fn;
-    });
+    void initAudio();
 
     return () => {
       cancelled = true;
-      cleanup?.();
+      cleanupListeners?.();
 
       audio_clear_samples();
 
@@ -188,9 +212,10 @@ export function useEmulatorAudio() {
         // ignore
       }
 
-      const ctx = audioCtxRef.current;
-      if (ctx && ctx.state !== "closed") {
-        void ctx.close();
+      const audioCtx = audioCtxRef.current;
+
+      if (audioCtx && audioCtx.state !== "closed") {
+        void audioCtx.close();
       }
 
       audioCtxRef.current = null;
@@ -205,6 +230,7 @@ export function useEmulatorAudio() {
     if (!isRunning) {
       audio_clear_samples();
       workletNodeRef.current?.port.postMessage({ type: "clear" });
+      workletAvailableRef.current = 0;
     }
   }, [emu.running, emu.paused]);
 

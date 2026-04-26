@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
+import { emu_get_ticks, emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
 import {
   gamepad_button,
@@ -30,6 +30,18 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
   const emu = useEmu();
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    let lastTicks = emu_get_ticks();
+
+    const id = window.setInterval(() => {
+      const ticks = emu_get_ticks();
+      console.log("ticks/sec", ticks - lastTicks);
+      lastTicks = ticks;
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const canvas = canvas_ref.current;

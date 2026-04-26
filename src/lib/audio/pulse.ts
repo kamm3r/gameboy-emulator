@@ -111,13 +111,18 @@ export function trigger_pulse(ch: pulse_channel, with_sweep: boolean): void {
 }
 
 export function pulse_output(ch: pulse_channel): number {
-  if (!ch.enabled || !ch.dac_enabled) {
+  if (!ch.enabled || !ch.dac_enabled || ch.current_volume === 0) {
     return 0;
   }
 
   const bit = DUTY_PATTERNS[ch.duty][ch.duty_pos];
-  const amp = ch.current_volume / 15;
-  return bit ? amp : -amp;
+  const digital = bit ? ch.current_volume : 0;
+
+  // Game Boy DAC approximation:
+  // digital 0   -> +1
+  // digital 15  -> -1
+  // This is then mixed and high-pass filtered later.
+  return 1 - (digital / 15) * 2;
 }
 
 export function tick_pulse(ch: pulse_channel): void {
@@ -139,6 +144,7 @@ export function step_sweep(): void {
   }
 
   ch.sweep_timer--;
+
   if (ch.sweep_timer > 0) {
     return;
   }
