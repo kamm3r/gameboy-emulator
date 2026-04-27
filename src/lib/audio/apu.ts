@@ -237,13 +237,13 @@ export function audio_write(address: number, value: number): void {
       ctx.ch4 = make_noise_channel();
       ctx.nr50 = 0;
       ctx.nr51 = 0;
-      ctx.frame_seq_step = 7;
+      ctx.frame_seq_step = 0;
       ctx.div_apu_counter = 0;
       ctx.hpf_cap_l = 0;
       ctx.hpf_cap_r = 0;
     } else if (!ctx.enabled) {
       ctx.enabled = true;
-      ctx.frame_seq_step = 7;
+      ctx.frame_seq_step = 0;
       ctx.div_apu_counter = 0;
     }
 

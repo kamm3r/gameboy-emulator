@@ -144,12 +144,15 @@ export function step_sweep(): void {
   }
 
   ch.sweep_timer--;
-
   if (ch.sweep_timer > 0) {
     return;
   }
 
   ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
+
+  if (ch.sweep_shift === 0) {
+    return;
+  }
 
   const new_period = calc_sweep_target(
     ch.shadow_period,
@@ -162,20 +165,18 @@ export function step_sweep(): void {
     return;
   }
 
-  if (ch.sweep_shift > 0) {
-    ch.shadow_period = new_period;
-    ch.period_value = new_period;
-    ch.nrx3 = new_period & 0xff;
-    ch.nrx4 = (ch.nrx4 & 0xf8) | ((new_period >> 8) & 0x07);
+  ch.shadow_period = new_period;
+  ch.period_value = new_period;
+  ch.nrx3 = new_period & 0xff;
+  ch.nrx4 = (ch.nrx4 & 0xf8) | ((new_period >> 8) & 0x07);
 
-    const overflow_check = calc_sweep_target(
-      ch.shadow_period,
-      ch.sweep_shift,
-      ch.sweep_negate,
-    );
+  const overflow_check = calc_sweep_target(
+    ch.shadow_period,
+    ch.sweep_shift,
+    ch.sweep_negate,
+  );
 
-    if (overflow_check > 2047) {
-      ch.enabled = false;
-    }
+  if (overflow_check > 2047) {
+    ch.enabled = false;
   }
 }
