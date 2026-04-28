@@ -59,6 +59,9 @@ export function trigger_wave(): void {
 
   ch.freq_timer = wave_timer_reload(ch.period_value);
   ch.wave_pos = 0;
+
+  const byte = ctx.wave_ram[0];
+  ch.sample_latch = byte & 0x0f;
 }
 
 export function wave_output(): number {
@@ -99,6 +102,6 @@ export function tick_wave(): void {
 
     const byte = ctx.wave_ram[ch.wave_pos >> 1];
     ch.sample_latch =
-      (ch.wave_pos & 1) === 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
+      (ch.wave_pos & 1) !== 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
   }
 }

@@ -66,20 +66,111 @@ function apu_update_nr52(): void {
   ctx.nr52 = value | 0x70;
 }
 
-function apu_clock_frame_sequencer(): void {
-  ctx.div_apu_counter++;
+function power_off_pulse(ch: typeof ctx.ch1): void {
+  const nrx1 = ch.nrx1;
+  const length_counter = ch.length_counter;
 
-  // Frame sequencer runs at 512 Hz.
-  // 4_194_304 / 512 = 8192 T-cycles.
-  if (ctx.div_apu_counter < 8192) {
-    return;
-  }
+  ch.enabled = false;
+  ch.dac_enabled = false;
 
+  ch.length_enabled = false;
+  ch.length_counter = length_counter;
+
+  ch.duty = (nrx1 >> 6) & 0x03;
+  ch.duty_pos = 0;
+
+  ch.period_value = 0;
+  ch.freq_timer = 0;
+
+  ch.initial_volume = 0;
+  ch.current_volume = 0;
+  ch.envelope_period = 0;
+  ch.envelope_add = false;
+  ch.envelope_timer = 0;
+
+  ch.sweep_period = 0;
+  ch.sweep_negate = false;
+  ch.sweep_shift = 0;
+  ch.sweep_timer = 0;
+  ch.sweep_enabled = false;
+  ch.shadow_period = 0;
+  ch.sweep_negate_used = false;
+
+  ch.nrx0 = 0;
+  ch.nrx1 = nrx1;
+  ch.nrx2 = 0;
+  ch.nrx3 = 0;
+  ch.nrx4 = 0;
+}
+
+function power_off_wave(ch: typeof ctx.ch3): void {
+  const nr31 = ch.nr31;
+  const length_counter = ch.length_counter;
+
+  ch.enabled = false;
+  ch.dac_enabled = false;
+
+  ch.length_enabled = false;
+  ch.length_counter = length_counter;
+
+  ch.period_value = 0;
+  ch.volume_code = 0;
+
+  ch.nr30 = 0;
+  ch.nr31 = nr31;
+  ch.nr32 = 0;
+  ch.nr33 = 0;
+  ch.nr34 = 0;
+}
+
+function power_off_noise(ch: typeof ctx.ch4): void {
+  const nr41 = ch.nr41;
+  const length_counter = ch.length_counter;
+
+  ch.enabled = false;
+  ch.dac_enabled = false;
+
+  ch.length_enabled = false;
+  ch.length_counter = length_counter;
+
+  ch.initial_volume = 0;
+  ch.current_volume = 0;
+  ch.envelope_period = 0;
+  ch.envelope_add = false;
+  ch.envelope_timer = 0;
+
+  ch.clock_shift = 0;
+  ch.lfsr_width_mode = false;
+  ch.divisor_code = 0;
+
+  ch.nr41 = nr41;
+  ch.nr42 = 0;
+  ch.nr43 = 0;
+  ch.nr44 = 0;
+}
+
+function power_off_apu(): void {
+  ctx.enabled = false;
+
+  power_off_pulse(ctx.ch1);
+  power_off_pulse(ctx.ch2);
+  power_off_wave(ctx.ch3);
+  power_off_noise(ctx.ch4);
+
+  ctx.nr50 = 0;
+  ctx.nr51 = 0;
+
+  ctx.frame_seq_step = 7;
   ctx.div_apu_counter = 0;
 
-  if (ctx.enabled) {
-    frame_sequencer_tick();
-  }
+  ctx.hpf_cap_l = 0;
+  ctx.hpf_cap_r = 0;
+}
+
+function power_on_apu(): void {
+  ctx.enabled = true;
+  ctx.frame_seq_step = 7;
+  ctx.div_apu_counter = 0;
 }
 
 export function audio_init(options?: audio_options): void {
@@ -94,7 +185,7 @@ export function audio_init(options?: audio_options): void {
   ctx.nr51 = 0;
   ctx.wave_ram.fill(0);
 
-  ctx.frame_seq_step = 0;
+  ctx.frame_seq_step = 7;
   ctx.div_apu_counter = 0;
 
   ctx.sample_rate = options?.sample_rate ?? DEFAULT_SAMPLE_RATE;
@@ -133,15 +224,9 @@ export function audio_set_max_buffered_samples(
 }
 
 export function audio_tick(): void {
-  // IMPORTANT:
-  // emu_cycles() calls audio_tick() once per CPU T-cycle because it does:
-  //
-  // for each M-cycle:
-  //   for n = 0..3:
-  //     audio_tick()
-  //
-  // So this function must advance the APU by exactly 1 T-cycle.
-  apu_clock_frame_sequencer();
+  // This function advances the APU by exactly 1 T-cycle.
+  // The frame sequencer must be clocked externally from DIV falling edges,
+  // not from an internal 8192-cycle counter here.
 
   if (ctx.enabled) {
     tick_pulse(ctx.ch1);
@@ -230,42 +315,41 @@ export function audio_write(address: number, value: number): void {
     const enable = (value & 0x80) !== 0;
 
     if (!enable) {
-      ctx.enabled = false;
-      ctx.ch1 = make_pulse_channel();
-      ctx.ch2 = make_pulse_channel();
-      ctx.ch3 = make_wave_channel();
-      ctx.ch4 = make_noise_channel();
-      ctx.nr50 = 0;
-      ctx.nr51 = 0;
-      ctx.frame_seq_step = 0;
-      ctx.div_apu_counter = 0;
-      ctx.hpf_cap_l = 0;
-      ctx.hpf_cap_r = 0;
+      power_off_apu();
     } else if (!ctx.enabled) {
-      ctx.enabled = true;
-      ctx.frame_seq_step = 0;
-      ctx.div_apu_counter = 0;
+      power_on_apu();
     }
 
     apu_update_nr52();
     return;
   }
 
-  if (
-    !ctx.enabled &&
-    address !== NR52 &&
-    !(address >= WAVE_RAM_START && address <= WAVE_RAM_END)
-  ) {
+  const can_write_while_off =
+    address === NR11 ||
+    address === NR21 ||
+    address === NR31 ||
+    address === NR41 ||
+    (address >= WAVE_RAM_START && address <= WAVE_RAM_END);
+
+  if (!ctx.enabled && !can_write_while_off) {
     return;
   }
 
   switch (address) {
-    case NR10:
+    case NR10: {
+      const old_negate = ctx.ch1.sweep_negate;
+
       ctx.ch1.nrx0 = value & 0x7f;
       ctx.ch1.sweep_period = (value >> 4) & 0x07;
       ctx.ch1.sweep_negate = (value & 0x08) !== 0;
       ctx.ch1.sweep_shift = value & 0x07;
+
+      if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
+        ctx.ch1.enabled = false;
+      }
+
       return;
+    }
 
     case NR11:
       ctx.ch1.nrx1 = value;

@@ -26,6 +26,7 @@ export type pulse_channel = {
   sweep_timer: number;
   sweep_enabled: boolean;
   shadow_period: number;
+  sweep_negate_used: boolean;
 
   nrx0: number;
   nrx1: number;
@@ -55,6 +56,7 @@ export function make_pulse_channel(): pulse_channel {
     sweep_timer: 0,
     sweep_enabled: false,
     shadow_period: 0,
+    sweep_negate_used: false,
     nrx0: 0,
     nrx1: 0,
     nrx2: 0,
@@ -95,8 +97,15 @@ export function trigger_pulse(ch: pulse_channel, with_sweep: boolean): void {
     ch.shadow_period = ch.period_value;
     ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
     ch.sweep_enabled = ch.sweep_period !== 0 || ch.sweep_shift !== 0;
+    ch.sweep_negate_used = false;
 
+    // On trigger, if shift != 0, hardware performs overflow check only.
+    // It does not write the new period back.
     if (ch.sweep_shift !== 0) {
+      if (ch.sweep_negate) {
+        ch.sweep_negate_used = true;
+      }
+
       const new_period = calc_sweep_target(
         ch.shadow_period,
         ch.sweep_shift,
@@ -118,10 +127,6 @@ export function pulse_output(ch: pulse_channel): number {
   const bit = DUTY_PATTERNS[ch.duty][ch.duty_pos];
   const digital = bit ? ch.current_volume : 0;
 
-  // Game Boy DAC approximation:
-  // digital 0   -> +1
-  // digital 15  -> -1
-  // This is then mixed and high-pass filtered later.
   return 1 - (digital / 15) * 2;
 }
 
@@ -144,14 +149,21 @@ export function step_sweep(): void {
   }
 
   ch.sweep_timer--;
+
   if (ch.sweep_timer > 0) {
     return;
   }
 
+  // Period 0 is treated as 8.
   ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
 
+  // shift = 0 => no calculation on sweep clock
   if (ch.sweep_shift === 0) {
     return;
+  }
+
+  if (ch.sweep_negate) {
+    ch.sweep_negate_used = true;
   }
 
   const new_period = calc_sweep_target(

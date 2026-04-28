@@ -12,6 +12,7 @@ function step_length(channel: {
 
   if (channel.length_counter > 0) {
     channel.length_counter--;
+
     if (channel.length_counter === 0) {
       channel.enabled = false;
     }
@@ -35,6 +36,7 @@ function step_envelope(channel: {
   }
 
   channel.envelope_timer--;
+
   if (channel.envelope_timer > 0) {
     return;
   }
@@ -51,6 +53,10 @@ function step_envelope(channel: {
 }
 
 export function frame_sequencer_tick(): void {
+  // Match the Java reference / hardware model:
+  // advance to the next step first, then run that step.
+  ctx.frame_seq_step = (ctx.frame_seq_step + 1) & 7;
+
   switch (ctx.frame_seq_step) {
     case 0:
     case 2:
@@ -72,6 +78,4 @@ export function frame_sequencer_tick(): void {
       step_envelope(ctx.ch4);
       break;
   }
-
-  ctx.frame_seq_step = (ctx.frame_seq_step + 1) & 7;
 }
