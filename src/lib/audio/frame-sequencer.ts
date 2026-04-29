@@ -6,7 +6,7 @@ function step_length(channel: {
   length_enabled: boolean;
   length_counter: number;
 }): void {
-  if (!channel.enabled || !channel.length_enabled) {
+  if (!channel.length_enabled) {
     return;
   }
 
@@ -53,8 +53,7 @@ function step_envelope(channel: {
 }
 
 export function frame_sequencer_tick(): void {
-  // Match the Java reference / hardware model:
-  // advance to the next step first, then run that step.
+  // Increment first so reset step=7 means next tick runs step 0.
   ctx.frame_seq_step = (ctx.frame_seq_step + 1) & 7;
 
   switch (ctx.frame_seq_step) {

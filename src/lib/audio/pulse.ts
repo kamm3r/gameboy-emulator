@@ -39,17 +39,22 @@ export function make_pulse_channel(): pulse_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length_enabled: false,
     length_counter: 0,
+
     duty: 0,
     duty_pos: 0,
+
     period_value: 0,
     freq_timer: 0,
+
     initial_volume: 0,
     current_volume: 0,
     envelope_period: 0,
     envelope_add: false,
     envelope_timer: 0,
+
     sweep_period: 0,
     sweep_negate: false,
     sweep_shift: 0,
@@ -57,6 +62,7 @@ export function make_pulse_channel(): pulse_channel {
     sweep_enabled: false,
     shadow_period: 0,
     sweep_negate_used: false,
+
     nrx0: 0,
     nrx1: 0,
     nrx2: 0,
@@ -66,7 +72,7 @@ export function make_pulse_channel(): pulse_channel {
 }
 
 export function pulse_timer_reload(period_value: number): number {
-  return (2048 - period_value) * 4;
+  return (2048 - (period_value & 0x7ff)) * 4;
 }
 
 export function envelope_dac_on(nrx2: number): boolean {
@@ -93,28 +99,26 @@ export function trigger_pulse(ch: pulse_channel, with_sweep: boolean): void {
   ch.envelope_timer = ch.envelope_period === 0 ? 8 : ch.envelope_period;
   ch.current_volume = ch.initial_volume;
 
-  if (with_sweep) {
-    ch.shadow_period = ch.period_value;
-    ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
-    ch.sweep_enabled = ch.sweep_period !== 0 || ch.sweep_shift !== 0;
-    ch.sweep_negate_used = false;
+  if (!with_sweep) {
+    return;
+  }
 
-    // On trigger, if shift != 0, hardware performs overflow check only.
-    // It does not write the new period back.
-    if (ch.sweep_shift !== 0) {
-      if (ch.sweep_negate) {
-        ch.sweep_negate_used = true;
-      }
+  ch.shadow_period = ch.period_value & 0x7ff;
+  ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
+  ch.sweep_enabled = ch.sweep_period !== 0 || ch.sweep_shift !== 0;
+  ch.sweep_negate_used = false;
 
-      const new_period = calc_sweep_target(
-        ch.shadow_period,
-        ch.sweep_shift,
-        ch.sweep_negate,
-      );
+  // On trigger, sweep only performs overflow check when shift != 0.
+  // It does not write the computed period back.
+  if (ch.sweep_shift !== 0) {
+    const new_period = calc_sweep_target(
+      ch.shadow_period,
+      ch.sweep_shift,
+      ch.sweep_negate,
+    );
 
-      if (new_period > 2047) {
-        ch.enabled = false;
-      }
+    if (new_period > 2047) {
+      ch.enabled = false;
     }
   }
 }
@@ -144,7 +148,7 @@ export function tick_pulse(ch: pulse_channel): void {
 export function step_sweep(): void {
   const ch = ctx.ch1;
 
-  if (!ch.enabled || !ch.sweep_enabled) {
+  if (!ch.sweep_enabled) {
     return;
   }
 
@@ -154,16 +158,12 @@ export function step_sweep(): void {
     return;
   }
 
-  // Period 0 is treated as 8.
+  // Sweep period 0 behaves as 8.
   ch.sweep_timer = ch.sweep_period === 0 ? 8 : ch.sweep_period;
 
-  // shift = 0 => no calculation on sweep clock
+  // Shift 0 means no calculation on sweep clock.
   if (ch.sweep_shift === 0) {
     return;
-  }
-
-  if (ch.sweep_negate) {
-    ch.sweep_negate_used = true;
   }
 
   const new_period = calc_sweep_target(
@@ -177,11 +177,14 @@ export function step_sweep(): void {
     return;
   }
 
-  ch.shadow_period = new_period;
-  ch.period_value = new_period;
-  ch.nrx3 = new_period & 0xff;
-  ch.nrx4 = (ch.nrx4 & 0xf8) | ((new_period >> 8) & 0x07);
+  if (ch.sweep_negate) {
+    ch.sweep_negate_used = true;
+  }
 
+  ch.shadow_period = new_period & 0x7ff;
+  ch.period_value = new_period & 0x7ff;
+
+  // Second overflow check after updating shadow period.
   const overflow_check = calc_sweep_target(
     ch.shadow_period,
     ch.sweep_shift,

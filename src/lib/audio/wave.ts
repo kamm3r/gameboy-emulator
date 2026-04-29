@@ -25,13 +25,17 @@ export function make_wave_channel(): wave_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length_enabled: false,
     length_counter: 0,
+
     period_value: 0,
     freq_timer: 0,
+
     volume_code: 0,
     wave_pos: 0,
     sample_latch: 0,
+
     nr30: 0,
     nr31: 0,
     nr32: 0,
@@ -45,7 +49,14 @@ export function ch3_dac_on(nr30: number): boolean {
 }
 
 export function wave_timer_reload(period_value: number): number {
-  return (2048 - period_value) * 2;
+  return (2048 - (period_value & 0x7ff)) * 2;
+}
+
+function wave_read_sample(sample_index: number): number {
+  const byte = ctx.wave_ram[sample_index >> 1];
+
+  // GB wave RAM plays high nibble first, then low nibble.
+  return (sample_index & 1) === 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
 }
 
 export function trigger_wave(): void {
@@ -59,9 +70,7 @@ export function trigger_wave(): void {
 
   ch.freq_timer = wave_timer_reload(ch.period_value);
   ch.wave_pos = 0;
-
-  const byte = ctx.wave_ram[0];
-  ch.sample_latch = byte & 0x0f;
+  ch.sample_latch = wave_read_sample(0);
 }
 
 export function wave_output(): number {
@@ -84,8 +93,6 @@ export function wave_output(): number {
       break;
   }
 
-  // Wave channel sample is already 4-bit digital.
-  // Approximate Game Boy DAC slope.
   return 1 - (sample / 15) * 2;
 }
 
@@ -99,9 +106,6 @@ export function tick_wave(): void {
   if (ch.freq_timer <= 0) {
     ch.freq_timer = wave_timer_reload(ch.period_value);
     ch.wave_pos = (ch.wave_pos + 1) & 31;
-
-    const byte = ctx.wave_ram[ch.wave_pos >> 1];
-    ch.sample_latch =
-      (ch.wave_pos & 1) !== 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
+    ch.sample_latch = wave_read_sample(ch.wave_pos);
   }
 }

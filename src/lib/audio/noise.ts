@@ -30,18 +30,22 @@ export function make_noise_channel(): noise_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length_enabled: false,
     length_counter: 0,
+
     clock_shift: 0,
     lfsr_width_mode: false,
     divisor_code: 0,
     freq_timer: 8,
     lfsr: 0x7fff,
+
     initial_volume: 0,
     current_volume: 0,
     envelope_period: 0,
     envelope_add: false,
     envelope_timer: 0,
+
     nr41: 0,
     nr42: 0,
     nr43: 0,
@@ -53,7 +57,7 @@ export function noise_timer_reload(
   divisor_code: number,
   clock_shift: number,
 ): number {
-  return NOISE_DIVISORS[divisor_code] << clock_shift;
+  return NOISE_DIVISORS[divisor_code & 7] << (clock_shift & 0x0f);
 }
 
 export function trigger_noise(): void {
@@ -79,8 +83,6 @@ export function noise_output(): number {
   }
 
   const digital = (ch.lfsr & 1) === 0 ? ch.current_volume : 0;
-
-  // Same DAC approximation as pulse.
   return 1 - (digital / 15) * 2;
 }
 
@@ -95,6 +97,7 @@ export function tick_noise(): void {
     ch.freq_timer = noise_timer_reload(ch.divisor_code, ch.clock_shift);
 
     const xor = (ch.lfsr & 1) ^ ((ch.lfsr >> 1) & 1);
+
     ch.lfsr = (ch.lfsr >> 1) | (xor << 14);
 
     if (ch.lfsr_width_mode) {

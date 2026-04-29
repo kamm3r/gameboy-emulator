@@ -114,7 +114,10 @@ function power_off_wave(ch: typeof ctx.ch3): void {
   ch.length_counter = length_counter;
 
   ch.period_value = 0;
+  ch.freq_timer = 0;
   ch.volume_code = 0;
+  ch.wave_pos = 0;
+  ch.sample_latch = 0;
 
   ch.nr30 = 0;
   ch.nr31 = nr31;
@@ -133,15 +136,17 @@ function power_off_noise(ch: typeof ctx.ch4): void {
   ch.length_enabled = false;
   ch.length_counter = length_counter;
 
+  ch.clock_shift = 0;
+  ch.lfsr_width_mode = false;
+  ch.divisor_code = 0;
+  ch.freq_timer = 8;
+  ch.lfsr = 0x7fff;
+
   ch.initial_volume = 0;
   ch.current_volume = 0;
   ch.envelope_period = 0;
   ch.envelope_add = false;
   ch.envelope_timer = 0;
-
-  ch.clock_shift = 0;
-  ch.lfsr_width_mode = false;
-  ch.divisor_code = 0;
 
   ch.nr41 = nr41;
   ch.nr42 = 0;
@@ -160,6 +165,7 @@ function power_off_apu(): void {
   ctx.nr50 = 0;
   ctx.nr51 = 0;
 
+  // Next frame sequencer tick should run step 0.
   ctx.frame_seq_step = 7;
   ctx.div_apu_counter = 0;
 
@@ -224,10 +230,6 @@ export function audio_set_max_buffered_samples(
 }
 
 export function audio_tick(): void {
-  // This function advances the APU by exactly 1 T-cycle.
-  // The frame sequencer must be clocked externally from DIV falling edges,
-  // not from an internal 8192-cycle counter here.
-
   if (ctx.enabled) {
     tick_pulse(ctx.ch1);
     tick_pulse(ctx.ch2);
@@ -344,6 +346,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.sweep_negate = (value & 0x08) !== 0;
       ctx.ch1.sweep_shift = value & 0x07;
 
+      // Clearing negate after a subtract calculation disables channel 1.
       if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
         ctx.ch1.enabled = false;
       }
@@ -381,7 +384,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.period_value =
         (ctx.ch1.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if (value & 0x80) {
+      if ((value & 0x80) !== 0) {
         trigger_pulse(ctx.ch1, true);
       }
 
@@ -417,7 +420,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch2.period_value =
         (ctx.ch2.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if (value & 0x80) {
+      if ((value & 0x80) !== 0) {
         trigger_pulse(ctx.ch2, false);
       }
 
@@ -454,7 +457,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch3.period_value =
         (ctx.ch3.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if (value & 0x80) {
+      if ((value & 0x80) !== 0) {
         trigger_wave();
       }
 
@@ -489,7 +492,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch4.nr44 = value;
       ctx.ch4.length_enabled = (value & 0x40) !== 0;
 
-      if (value & 0x80) {
+      if ((value & 0x80) !== 0) {
         trigger_noise();
       }
 
