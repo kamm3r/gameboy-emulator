@@ -42,133 +42,181 @@ import {
   trigger_pulse,
 } from "./pulse";
 import { ctx, type audio_options } from "./state";
-import { ch3_dac_on, make_wave_channel, tick_wave, trigger_wave } from "./wave";
+import {
+  ch3_dac_on,
+  make_wave_channel,
+  tick_wave,
+  trigger_wave,
+  wave_ram_read,
+  wave_ram_write,
+} from "./wave";
+
+function next_frame_step_clocks_length(): boolean {
+  const next_step = (ctx.frame_seq_step + 1) & 7;
+  return (next_step & 1) === 0;
+}
+
+function handle_nrx4_write(
+  ch: { enabled: boolean; length_enabled: boolean; length_counter: number },
+  old_length_enabled: boolean,
+  new_length_enabled: boolean,
+  trigger: boolean,
+  on_trigger: () => void,
+): void {
+  const next_step_is_length = next_frame_step_clocks_length();
+  const first_half = !next_step_is_length;
+  const was_zero_before_write = ch.length_counter === 0;
+
+  if (
+    !old_length_enabled &&
+    new_length_enabled &&
+    first_half &&
+    ch.length_counter > 0
+  ) {
+    ch.length_counter--;
+
+    if (ch.length_counter === 0 && !trigger) {
+      ch.enabled = false;
+    }
+  }
+
+  ch.length_enabled = new_length_enabled;
+
+  if (!trigger) {
+    return;
+  }
+
+  on_trigger();
+
+  if (was_zero_before_write && new_length_enabled && first_half) {
+    ch.length_counter--;
+
+    if (ch.length_counter === 0) {
+      ch.enabled = false;
+    }
+  }
+}
+
+function write_envelope(
+  ch: {
+    enabled: boolean;
+    dac_enabled: boolean;
+    initial_volume: number;
+    envelope_period: number;
+    envelope_add: boolean;
+  },
+  value: number,
+): void {
+  ch.initial_volume = (value >> 4) & 0x0f;
+  ch.envelope_add = (value & 0x08) !== 0;
+  ch.envelope_period = value & 0x07;
+  ch.dac_enabled = envelope_dac_on(value);
+
+  if (!ch.dac_enabled) {
+    ch.enabled = false;
+  }
+}
 
 function apu_update_nr52(): void {
-  let value = ctx.enabled ? 0x80 : 0x00;
-
-  if (ctx.ch1.enabled) {
-    value |= 0x01;
-  }
-
-  if (ctx.ch2.enabled) {
-    value |= 0x02;
-  }
-
-  if (ctx.ch3.enabled) {
-    value |= 0x04;
-  }
-
-  if (ctx.ch4.enabled) {
-    value |= 0x08;
-  }
-
-  ctx.nr52 = value | 0x70;
+  ctx.nr52 =
+    (ctx.enabled ? 0x80 : 0) |
+    (ctx.ch1.enabled ? 0x01 : 0) |
+    (ctx.ch2.enabled ? 0x02 : 0) |
+    (ctx.ch3.enabled ? 0x04 : 0) |
+    (ctx.ch4.enabled ? 0x08 : 0) |
+    0x70;
 }
 
 function power_off_pulse(ch: typeof ctx.ch1): void {
-  const nrx1 = ch.nrx1;
-  const length_counter = ch.length_counter;
+  const len = ch.length_counter;
 
-  ch.enabled = false;
-  ch.dac_enabled = false;
-
-  ch.length_enabled = false;
-  ch.length_counter = length_counter;
-
-  ch.duty = (nrx1 >> 6) & 0x03;
-  ch.duty_pos = 0;
-
-  ch.period_value = 0;
-  ch.freq_timer = 0;
-
-  ch.initial_volume = 0;
-  ch.current_volume = 0;
-  ch.envelope_period = 0;
-  ch.envelope_add = false;
-  ch.envelope_timer = 0;
-
-  ch.sweep_period = 0;
-  ch.sweep_negate = false;
-  ch.sweep_shift = 0;
-  ch.sweep_timer = 0;
-  ch.sweep_enabled = false;
-  ch.shadow_period = 0;
-  ch.sweep_negate_used = false;
-
-  ch.nrx0 = 0;
-  ch.nrx1 = nrx1;
-  ch.nrx2 = 0;
-  ch.nrx3 = 0;
-  ch.nrx4 = 0;
+  Object.assign(ch, {
+    enabled: false,
+    dac_enabled: false,
+    length_enabled: false,
+    length_counter: len,
+    duty: 0,
+    duty_pos: 0,
+    period_value: 0,
+    freq_timer: 0,
+    initial_volume: 0,
+    current_volume: 0,
+    envelope_period: 0,
+    envelope_add: false,
+    envelope_timer: 0,
+    sweep_period: 0,
+    sweep_negate: false,
+    sweep_shift: 0,
+    sweep_timer: 0,
+    sweep_enabled: false,
+    shadow_period: 0,
+    sweep_negate_used: false,
+    nrx0: 0,
+    nrx1: 0,
+    nrx2: 0,
+    nrx3: 0,
+    nrx4: 0,
+  });
 }
 
 function power_off_wave(ch: typeof ctx.ch3): void {
-  const nr31 = ch.nr31;
-  const length_counter = ch.length_counter;
+  const len = ch.length_counter;
 
-  ch.enabled = false;
-  ch.dac_enabled = false;
-
-  ch.length_enabled = false;
-  ch.length_counter = length_counter;
-
-  ch.period_value = 0;
-  ch.freq_timer = 0;
-  ch.volume_code = 0;
-  ch.wave_pos = 0;
-  ch.sample_latch = 0;
-
-  ch.nr30 = 0;
-  ch.nr31 = nr31;
-  ch.nr32 = 0;
-  ch.nr33 = 0;
-  ch.nr34 = 0;
+  Object.assign(ch, {
+    enabled: false,
+    dac_enabled: false,
+    length_enabled: false,
+    length_counter: len,
+    period_value: 0,
+    freq_timer: 0,
+    volume_code: 0,
+    wave_pos: 0,
+    sample_latch: 0,
+    last_read_byte: 0,
+    access_window: 0,
+    nr30: 0,
+    nr31: 0,
+    nr32: 0,
+    nr33: 0,
+    nr34: 0,
+  });
 }
 
 function power_off_noise(ch: typeof ctx.ch4): void {
-  const nr41 = ch.nr41;
-  const length_counter = ch.length_counter;
+  const len = ch.length_counter;
 
-  ch.enabled = false;
-  ch.dac_enabled = false;
-
-  ch.length_enabled = false;
-  ch.length_counter = length_counter;
-
-  ch.clock_shift = 0;
-  ch.lfsr_width_mode = false;
-  ch.divisor_code = 0;
-  ch.freq_timer = 8;
-  ch.lfsr = 0x7fff;
-
-  ch.initial_volume = 0;
-  ch.current_volume = 0;
-  ch.envelope_period = 0;
-  ch.envelope_add = false;
-  ch.envelope_timer = 0;
-
-  ch.nr41 = nr41;
-  ch.nr42 = 0;
-  ch.nr43 = 0;
-  ch.nr44 = 0;
+  Object.assign(ch, {
+    enabled: false,
+    dac_enabled: false,
+    length_enabled: false,
+    length_counter: len,
+    clock_shift: 0,
+    lfsr_width_mode: false,
+    divisor_code: 0,
+    freq_timer: 8,
+    lfsr: 0x7fff,
+    initial_volume: 0,
+    current_volume: 0,
+    envelope_period: 0,
+    envelope_add: false,
+    envelope_timer: 0,
+    nr41: 0,
+    nr42: 0,
+    nr43: 0,
+    nr44: 0,
+  });
 }
 
 function power_off_apu(): void {
   ctx.enabled = false;
-
   power_off_pulse(ctx.ch1);
   power_off_pulse(ctx.ch2);
   power_off_wave(ctx.ch3);
   power_off_noise(ctx.ch4);
-
   ctx.nr50 = 0;
   ctx.nr51 = 0;
-
-  // Next frame sequencer tick should run step 0.
   ctx.frame_seq_step = 7;
   ctx.div_apu_counter = 0;
-
   ctx.hpf_cap_l = 0;
   ctx.hpf_cap_r = 0;
 }
@@ -181,30 +229,23 @@ function power_on_apu(): void {
 
 export function audio_init(options?: audio_options): void {
   ctx.enabled = false;
-
   ctx.ch1 = make_pulse_channel();
   ctx.ch2 = make_pulse_channel();
   ctx.ch3 = make_wave_channel();
   ctx.ch4 = make_noise_channel();
-
   ctx.nr50 = 0;
   ctx.nr51 = 0;
   ctx.wave_ram.fill(0);
-
   ctx.frame_seq_step = 7;
   ctx.div_apu_counter = 0;
-
   ctx.sample_rate = options?.sample_rate ?? DEFAULT_SAMPLE_RATE;
   ctx.cycles_per_sample = CPU_HZ / ctx.sample_rate;
   ctx.sample_cycle_accum = 0;
   ctx.max_buffered_samples =
     options?.max_buffered_samples ?? DEFAULT_MAX_BUFFERED_SAMPLES;
-
   audio_clear_samples();
-
   ctx.hpf_cap_l = 0;
   ctx.hpf_cap_r = 0;
-
   apu_update_nr52();
 }
 
@@ -302,11 +343,9 @@ export function audio_read(address: number): number {
       return ctx.nr52;
 
     default:
-      if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-        return ctx.wave_ram[address - WAVE_RAM_START];
-      }
-
-      return 0xff;
+      return address >= WAVE_RAM_START && address <= WAVE_RAM_END
+        ? wave_ram_read(address - WAVE_RAM_START)
+        : 0xff;
   }
 }
 
@@ -314,9 +353,7 @@ export function audio_write(address: number, value: number): void {
   value &= 0xff;
 
   if (address === NR52) {
-    const enable = (value & 0x80) !== 0;
-
-    if (!enable) {
+    if (!(value & 0x80)) {
       power_off_apu();
     } else if (!ctx.enabled) {
       power_on_apu();
@@ -326,14 +363,19 @@ export function audio_write(address: number, value: number): void {
     return;
   }
 
-  const can_write_while_off =
-    address === NR11 ||
-    address === NR21 ||
-    address === NR31 ||
-    address === NR41 ||
-    (address >= WAVE_RAM_START && address <= WAVE_RAM_END);
+  if (!ctx.enabled) {
+    if (address === NR11) {
+      ctx.ch1.length_counter = 64 - (value & 0x3f);
+    } else if (address === NR21) {
+      ctx.ch2.length_counter = 64 - (value & 0x3f);
+    } else if (address === NR31) {
+      ctx.ch3.length_counter = 256 - value;
+    } else if (address === NR41) {
+      ctx.ch4.length_counter = 64 - (value & 0x3f);
+    } else if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
+      wave_ram_write(address - WAVE_RAM_START, value);
+    }
 
-  if (!ctx.enabled && !can_write_while_off) {
     return;
   }
 
@@ -346,7 +388,6 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.sweep_negate = (value & 0x08) !== 0;
       ctx.ch1.sweep_shift = value & 0x07;
 
-      // Clearing negate after a subtract calculation disables channel 1.
       if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
         ctx.ch1.enabled = false;
       }
@@ -362,15 +403,7 @@ export function audio_write(address: number, value: number): void {
 
     case NR12:
       ctx.ch1.nrx2 = value;
-      ctx.ch1.initial_volume = (value >> 4) & 0x0f;
-      ctx.ch1.envelope_add = (value & 0x08) !== 0;
-      ctx.ch1.envelope_period = value & 0x07;
-      ctx.ch1.dac_enabled = envelope_dac_on(value);
-
-      if (!ctx.ch1.dac_enabled) {
-        ctx.ch1.enabled = false;
-      }
-
+      write_envelope(ctx.ch1, value);
       return;
 
     case NR13:
@@ -378,17 +411,23 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.period_value = (ctx.ch1.period_value & 0x0700) | value;
       return;
 
-    case NR14:
+    case NR14: {
+      const old_len_en = ctx.ch1.length_enabled;
+
       ctx.ch1.nrx4 = value;
-      ctx.ch1.length_enabled = (value & 0x40) !== 0;
       ctx.ch1.period_value =
         (ctx.ch1.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if ((value & 0x80) !== 0) {
-        trigger_pulse(ctx.ch1, true);
-      }
+      handle_nrx4_write(
+        ctx.ch1,
+        old_len_en,
+        (value & 0x40) !== 0,
+        (value & 0x80) !== 0,
+        () => trigger_pulse(ctx.ch1, true),
+      );
 
       return;
+    }
 
     case NR21:
       ctx.ch2.nrx1 = value;
@@ -398,15 +437,7 @@ export function audio_write(address: number, value: number): void {
 
     case NR22:
       ctx.ch2.nrx2 = value;
-      ctx.ch2.initial_volume = (value >> 4) & 0x0f;
-      ctx.ch2.envelope_add = (value & 0x08) !== 0;
-      ctx.ch2.envelope_period = value & 0x07;
-      ctx.ch2.dac_enabled = envelope_dac_on(value);
-
-      if (!ctx.ch2.dac_enabled) {
-        ctx.ch2.enabled = false;
-      }
-
+      write_envelope(ctx.ch2, value);
       return;
 
     case NR23:
@@ -414,17 +445,23 @@ export function audio_write(address: number, value: number): void {
       ctx.ch2.period_value = (ctx.ch2.period_value & 0x0700) | value;
       return;
 
-    case NR24:
+    case NR24: {
+      const old_len_en = ctx.ch2.length_enabled;
+
       ctx.ch2.nrx4 = value;
-      ctx.ch2.length_enabled = (value & 0x40) !== 0;
       ctx.ch2.period_value =
         (ctx.ch2.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if ((value & 0x80) !== 0) {
-        trigger_pulse(ctx.ch2, false);
-      }
+      handle_nrx4_write(
+        ctx.ch2,
+        old_len_en,
+        (value & 0x40) !== 0,
+        (value & 0x80) !== 0,
+        () => trigger_pulse(ctx.ch2, false),
+      );
 
       return;
+    }
 
     case NR30:
       ctx.ch3.nr30 = value;
@@ -451,17 +488,23 @@ export function audio_write(address: number, value: number): void {
       ctx.ch3.period_value = (ctx.ch3.period_value & 0x0700) | value;
       return;
 
-    case NR34:
+    case NR34: {
+      const old_len_en = ctx.ch3.length_enabled;
+
       ctx.ch3.nr34 = value;
-      ctx.ch3.length_enabled = (value & 0x40) !== 0;
       ctx.ch3.period_value =
         (ctx.ch3.period_value & 0x00ff) | ((value & 0x07) << 8);
 
-      if ((value & 0x80) !== 0) {
-        trigger_wave();
-      }
+      handle_nrx4_write(
+        ctx.ch3,
+        old_len_en,
+        (value & 0x40) !== 0,
+        (value & 0x80) !== 0,
+        () => trigger_wave(),
+      );
 
       return;
+    }
 
     case NR41:
       ctx.ch4.nr41 = value;
@@ -470,15 +513,7 @@ export function audio_write(address: number, value: number): void {
 
     case NR42:
       ctx.ch4.nr42 = value;
-      ctx.ch4.initial_volume = (value >> 4) & 0x0f;
-      ctx.ch4.envelope_add = (value & 0x08) !== 0;
-      ctx.ch4.envelope_period = value & 0x07;
-      ctx.ch4.dac_enabled = envelope_dac_on(value);
-
-      if (!ctx.ch4.dac_enabled) {
-        ctx.ch4.enabled = false;
-      }
-
+      write_envelope(ctx.ch4, value);
       return;
 
     case NR43:
@@ -488,15 +523,19 @@ export function audio_write(address: number, value: number): void {
       ctx.ch4.divisor_code = value & 0x07;
       return;
 
-    case NR44:
-      ctx.ch4.nr44 = value;
-      ctx.ch4.length_enabled = (value & 0x40) !== 0;
+    case NR44: {
+      const old_len_en = ctx.ch4.length_enabled;
+      const new_len_en = (value & 0x40) !== 0;
+      const trigger = (value & 0x80) !== 0;
 
-      if ((value & 0x80) !== 0) {
-        trigger_noise();
-      }
+      ctx.ch4.nr44 = value;
+
+      handle_nrx4_write(ctx.ch4, old_len_en, new_len_en, trigger, () =>
+        trigger_noise(),
+      );
 
       return;
+    }
 
     case NR50:
       ctx.nr50 = value;
@@ -508,10 +547,8 @@ export function audio_write(address: number, value: number): void {
 
     default:
       if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-        ctx.wave_ram[address - WAVE_RAM_START] = value;
+        wave_ram_write(address - WAVE_RAM_START, value);
       }
-
-      return;
   }
 }
 

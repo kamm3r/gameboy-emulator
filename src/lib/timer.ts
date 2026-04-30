@@ -83,7 +83,6 @@ export function timer_write(address: number, value: number): void {
       clock_apu_on_div_falling_edge(prev_div, ctx.div);
       break;
     }
-
     case 0xff05:
       ctx.tima = value & 0xff;
       break;
