@@ -1,4 +1,4 @@
-# Gameboy Emulator
+# Gēmubōi Emulator
 
 TODO:better name and readme
 
