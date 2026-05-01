@@ -12,14 +12,19 @@ pnpx tsx ./src/lib/main.ts ./roms/tetris_world.gb
 ### TODO
 
 - [x] load roms
-- [ ] cpu
-  - [ ] instructions
-  - [ ] registers
-- [ ] ppu
-- [ ] bus
-- [ ] timer
-- [ ] emulation
+- [x] cpu
+  - [x] instructions
+  - [x] registers
+- [x] ppu
+- [x] bus
+- [x] timer
+- [x] emulation
 - [x] ui integration
+- [ ] audio
+  - [ ] apu
+  - [ ] wave
+  - [ ] noise
+  - [ ] pulse
 
 References:
 https://gbdev.io/pandocs/
