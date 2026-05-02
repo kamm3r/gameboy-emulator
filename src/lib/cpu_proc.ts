@@ -322,13 +322,21 @@ export function is_16_bit(rt: RegType): boolean {
 export function proc_ld(ctx: cpu_context): void {
   if (ctx.destination_is_memory) {
     if (is_16_bit(ctx.current_instruction?.reg_2!)) {
+      const value = ctx.fetched_data & 0xffff;
+
       emu_cycles(1);
-      bus_write16(ctx.memory_destination, ctx.fetched_data & 0xffff);
+      bus_write(ctx.memory_destination, value & 0xff);
+
+      emu_cycles(1);
+      bus_write(
+        (ctx.memory_destination + 1) & 0xffff,
+        (value >> 8) & 0xff,
+      );
     } else {
+      emu_cycles(1);
       bus_write(ctx.memory_destination, ctx.fetched_data & 0xff);
     }
 
-    emu_cycles(1);
     return;
   }
 
@@ -352,17 +360,17 @@ export function proc_ld(ctx: cpu_context): void {
 }
 
 export function proc_ldh(ctx: cpu_context): void {
+  emu_cycles(1);
+
   if (ctx.current_instruction?.reg_1 === "RT_A") {
     cpu_set_register(
       ctx,
-      ctx.current_instruction?.reg_1,
+      ctx.current_instruction.reg_1,
       bus_read(0xff00 | (ctx.fetched_data & 0xff)),
     );
   } else {
-    bus_write(ctx.memory_destination, ctx.registers.A);
+    bus_write(ctx.memory_destination, ctx.registers.A & 0xff);
   }
-
-  emu_cycles(1);
 }
 
 export function check_cond(ctx: cpu_context): boolean {

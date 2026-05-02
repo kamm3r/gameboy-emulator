@@ -1,3 +1,5 @@
+// apu.ts
+
 import {
   CPU_HZ,
   DEFAULT_MAX_BUFFERED_SAMPLES,
@@ -27,8 +29,13 @@ import {
   WAVE_RAM_START,
 } from "./constants";
 import { frame_sequencer_tick } from "./frame-sequencer";
+import { length_counter_handle_nrx4 } from "./length-counter";
 import { mix_and_push_sample } from "./mixer";
-import { make_noise_channel, tick_noise, trigger_noise } from "./noise";
+import {
+  make_noise_channel,
+  tick_noise,
+  trigger_noise,
+} from "./noise";
 import {
   audio_clear_samples,
   audio_consume_samples,
@@ -56,45 +63,70 @@ function next_frame_step_clocks_length(): boolean {
   return (next_step & 1) === 0;
 }
 
-function handle_nrx4_write(
-  ch: { enabled: boolean; length_enabled: boolean; length_counter: number },
-  old_length_enabled: boolean,
-  new_length_enabled: boolean,
-  trigger: boolean,
-  on_trigger: () => void,
+function write_nrx4_pulse(
+  ch: typeof ctx.ch1,
+  value: number,
+  with_sweep: boolean,
 ): void {
-  const next_step_is_length = next_frame_step_clocks_length();
-  const first_half = !next_step_is_length;
-  const was_zero_before_write = ch.length_counter === 0;
+  const old_len_en = ch.length.enabled;
+  const new_len_en = (value & 0x40) !== 0;
+  const trigger = (value & 0x80) !== 0;
 
-  if (
-    !old_length_enabled &&
-    new_length_enabled &&
-    first_half &&
-    ch.length_counter > 0
-  ) {
-    ch.length_counter--;
+  ch.enabled = length_counter_handle_nrx4(
+    ch.length,
+    ch.enabled,
+    old_len_en,
+    new_len_en,
+    trigger,
+    64,
+    next_frame_step_clocks_length(),
+    () => {
+      trigger_pulse(ch, with_sweep);
+      return ch.enabled;
+    },
+  );
+}
 
-    if (ch.length_counter === 0 && !trigger) {
-      ch.enabled = false;
-    }
-  }
+function write_nrx4_wave(value: number): void {
+  const ch = ctx.ch3;
+  const old_len_en = ch.length.enabled;
+  const new_len_en = (value & 0x40) !== 0;
+  const trigger = (value & 0x80) !== 0;
 
-  ch.length_enabled = new_length_enabled;
+  ch.enabled = length_counter_handle_nrx4(
+    ch.length,
+    ch.enabled,
+    old_len_en,
+    new_len_en,
+    trigger,
+    256,
+    next_frame_step_clocks_length(),
+    () => {
+      trigger_wave();
+      return ch.enabled;
+    },
+  );
+}
 
-  if (!trigger) {
-    return;
-  }
+function write_nrx4_noise(value: number): void {
+  const ch = ctx.ch4;
+  const old_len_en = ch.length.enabled;
+  const new_len_en = (value & 0x40) !== 0;
+  const trigger = (value & 0x80) !== 0;
 
-  on_trigger();
-
-  if (was_zero_before_write && new_length_enabled && first_half) {
-    ch.length_counter--;
-
-    if (ch.length_counter === 0) {
-      ch.enabled = false;
-    }
-  }
+  ch.enabled = length_counter_handle_nrx4(
+    ch.length,
+    ch.enabled,
+    old_len_en,
+    new_len_en,
+    trigger,
+    64,
+    next_frame_step_clocks_length(),
+    () => {
+      trigger_noise();
+      return ch.enabled;
+    },
+  );
 }
 
 function write_envelope(
@@ -128,83 +160,21 @@ function apu_update_nr52(): void {
 }
 
 function power_off_pulse(ch: typeof ctx.ch1): void {
-  const len = ch.length_counter;
-
-  Object.assign(ch, {
-    enabled: false,
-    dac_enabled: false,
-    length_enabled: false,
-    length_counter: len,
-    duty: 0,
-    duty_pos: 0,
-    period_value: 0,
-    freq_timer: 0,
-    initial_volume: 0,
-    current_volume: 0,
-    envelope_period: 0,
-    envelope_add: false,
-    envelope_timer: 0,
-    sweep_period: 0,
-    sweep_negate: false,
-    sweep_shift: 0,
-    sweep_timer: 0,
-    sweep_enabled: false,
-    shadow_period: 0,
-    sweep_negate_used: false,
-    nrx0: 0,
-    nrx1: 0,
-    nrx2: 0,
-    nrx3: 0,
-    nrx4: 0,
-  });
+  const len_counter = ch.length.counter;
+  Object.assign(ch, make_pulse_channel());
+  ch.length.counter = len_counter;
 }
 
 function power_off_wave(ch: typeof ctx.ch3): void {
-  const len = ch.length_counter;
-
-  Object.assign(ch, {
-    enabled: false,
-    dac_enabled: false,
-    length_enabled: false,
-    length_counter: len,
-    period_value: 0,
-    freq_timer: 0,
-    volume_code: 0,
-    wave_pos: 0,
-    sample_latch: 0,
-    last_read_byte: 0,
-    access_window: 0,
-    nr30: 0,
-    nr31: 0,
-    nr32: 0,
-    nr33: 0,
-    nr34: 0,
-  });
+  const len_counter = ch.length.counter;
+  Object.assign(ch, make_wave_channel());
+  ch.length.counter = len_counter;
 }
 
 function power_off_noise(ch: typeof ctx.ch4): void {
-  const len = ch.length_counter;
-
-  Object.assign(ch, {
-    enabled: false,
-    dac_enabled: false,
-    length_enabled: false,
-    length_counter: len,
-    clock_shift: 0,
-    lfsr_width_mode: false,
-    divisor_code: 0,
-    freq_timer: 8,
-    lfsr: 0x7fff,
-    initial_volume: 0,
-    current_volume: 0,
-    envelope_period: 0,
-    envelope_add: false,
-    envelope_timer: 0,
-    nr41: 0,
-    nr42: 0,
-    nr43: 0,
-    nr44: 0,
-  });
+  const len_counter = ch.length.counter;
+  Object.assign(ch, make_noise_channel());
+  ch.length.counter = len_counter;
 }
 
 function power_off_apu(): void {
@@ -262,7 +232,10 @@ export function audio_set_sample_rate(sample_rate: number): void {
 export function audio_set_max_buffered_samples(
   max_buffered_samples: number,
 ): void {
-  if (!Number.isFinite(max_buffered_samples) || max_buffered_samples <= 0) {
+  if (
+    !Number.isFinite(max_buffered_samples) ||
+    max_buffered_samples <= 0
+  ) {
     return;
   }
 
@@ -287,12 +260,14 @@ export function audio_tick(): void {
 }
 
 export function audio_on_div_falling_edge(): void {
-  if (ctx.enabled) {
-    frame_sequencer_tick();
-  }
+  frame_sequencer_tick();
 }
 
 export function audio_read(address: number): number {
+  if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
+    return wave_ram_read(address - WAVE_RAM_START);
+  }
+
   switch (address) {
     case NR10:
       return ctx.ch1.nrx0 | 0x80;
@@ -303,7 +278,7 @@ export function audio_read(address: number): number {
     case NR13:
       return 0xff;
     case NR14:
-      return ctx.ch1.nrx4 | 0xbf;
+      return (ctx.ch1.length.enabled ? 0x40 : 0) | 0xbf;
 
     case NR21:
       return ctx.ch2.nrx1 | 0x3f;
@@ -312,7 +287,7 @@ export function audio_read(address: number): number {
     case NR23:
       return 0xff;
     case NR24:
-      return ctx.ch2.nrx4 | 0xbf;
+      return (ctx.ch2.length.enabled ? 0x40 : 0) | 0xbf;
 
     case NR30:
       return ctx.ch3.nr30 | 0x7f;
@@ -323,7 +298,7 @@ export function audio_read(address: number): number {
     case NR33:
       return 0xff;
     case NR34:
-      return ctx.ch3.nr34 | 0xbf;
+      return (ctx.ch3.length.enabled ? 0x40 : 0) | 0xbf;
 
     case NR41:
       return 0xff;
@@ -332,7 +307,7 @@ export function audio_read(address: number): number {
     case NR43:
       return ctx.ch4.nr43;
     case NR44:
-      return ctx.ch4.nr44 | 0xbf;
+      return (ctx.ch4.length.enabled ? 0x40 : 0) | 0xbf;
 
     case NR50:
       return ctx.nr50;
@@ -343,14 +318,21 @@ export function audio_read(address: number): number {
       return ctx.nr52;
 
     default:
-      return address >= WAVE_RAM_START && address <= WAVE_RAM_END
-        ? wave_ram_read(address - WAVE_RAM_START)
-        : 0xff;
+      return 0xff;
   }
 }
 
-export function audio_write(address: number, value: number): void {
+export function audio_write(
+  address: number,
+  value: number,
+): void {
   value &= 0xff;
+
+  // Wave RAM is always accessible
+  if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
+    wave_ram_write(address - WAVE_RAM_START, value);
+    return;
+  }
 
   if (address === NR52) {
     if (!(value & 0x80)) {
@@ -364,19 +346,23 @@ export function audio_write(address: number, value: number): void {
   }
 
   if (!ctx.enabled) {
-    if (address === NR11) {
-      ctx.ch1.length_counter = 64 - (value & 0x3f);
-    } else if (address === NR21) {
-      ctx.ch2.length_counter = 64 - (value & 0x3f);
-    } else if (address === NR31) {
-      ctx.ch3.length_counter = 256 - value;
-    } else if (address === NR41) {
-      ctx.ch4.length_counter = 64 - (value & 0x3f);
-    } else if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-      wave_ram_write(address - WAVE_RAM_START, value);
+    // When APU is off on DMG, only length counters can be written
+    switch (address) {
+      case NR11:
+        ctx.ch1.length.counter = 64 - (value & 0x3f);
+        return;
+      case NR21:
+        ctx.ch2.length.counter = 64 - (value & 0x3f);
+        return;
+      case NR31:
+        ctx.ch3.length.counter = 256 - value;
+        return;
+      case NR41:
+        ctx.ch4.length.counter = 64 - (value & 0x3f);
+        return;
+      default:
+        return;
     }
-
-    return;
   }
 
   switch (address) {
@@ -388,7 +374,11 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.sweep_negate = (value & 0x08) !== 0;
       ctx.ch1.sweep_shift = value & 0x07;
 
-      if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
+      if (
+        old_negate &&
+        !ctx.ch1.sweep_negate &&
+        ctx.ch1.sweep_negate_used
+      ) {
         ctx.ch1.enabled = false;
       }
 
@@ -398,7 +388,7 @@ export function audio_write(address: number, value: number): void {
     case NR11:
       ctx.ch1.nrx1 = value;
       ctx.ch1.duty = (value >> 6) & 0x03;
-      ctx.ch1.length_counter = 64 - (value & 0x3f);
+      ctx.ch1.length.counter = 64 - (value & 0x3f);
       return;
 
     case NR12:
@@ -408,31 +398,24 @@ export function audio_write(address: number, value: number): void {
 
     case NR13:
       ctx.ch1.nrx3 = value;
-      ctx.ch1.period_value = (ctx.ch1.period_value & 0x0700) | value;
+      ctx.ch1.period_value =
+        (ctx.ch1.period_value & 0x0700) | value;
       return;
 
     case NR14: {
-      const old_len_en = ctx.ch1.length_enabled;
-
       ctx.ch1.nrx4 = value;
       ctx.ch1.period_value =
-        (ctx.ch1.period_value & 0x00ff) | ((value & 0x07) << 8);
+        (ctx.ch1.period_value & 0x00ff) |
+        ((value & 0x07) << 8);
 
-      handle_nrx4_write(
-        ctx.ch1,
-        old_len_en,
-        (value & 0x40) !== 0,
-        (value & 0x80) !== 0,
-        () => trigger_pulse(ctx.ch1, true),
-      );
-
+      write_nrx4_pulse(ctx.ch1, value, true);
       return;
     }
 
     case NR21:
       ctx.ch2.nrx1 = value;
       ctx.ch2.duty = (value >> 6) & 0x03;
-      ctx.ch2.length_counter = 64 - (value & 0x3f);
+      ctx.ch2.length.counter = 64 - (value & 0x3f);
       return;
 
     case NR22:
@@ -442,24 +425,17 @@ export function audio_write(address: number, value: number): void {
 
     case NR23:
       ctx.ch2.nrx3 = value;
-      ctx.ch2.period_value = (ctx.ch2.period_value & 0x0700) | value;
+      ctx.ch2.period_value =
+        (ctx.ch2.period_value & 0x0700) | value;
       return;
 
     case NR24: {
-      const old_len_en = ctx.ch2.length_enabled;
-
       ctx.ch2.nrx4 = value;
       ctx.ch2.period_value =
-        (ctx.ch2.period_value & 0x00ff) | ((value & 0x07) << 8);
+        (ctx.ch2.period_value & 0x00ff) |
+        ((value & 0x07) << 8);
 
-      handle_nrx4_write(
-        ctx.ch2,
-        old_len_en,
-        (value & 0x40) !== 0,
-        (value & 0x80) !== 0,
-        () => trigger_pulse(ctx.ch2, false),
-      );
-
+      write_nrx4_pulse(ctx.ch2, value, false);
       return;
     }
 
@@ -475,7 +451,7 @@ export function audio_write(address: number, value: number): void {
 
     case NR31:
       ctx.ch3.nr31 = value;
-      ctx.ch3.length_counter = 256 - value;
+      ctx.ch3.length.counter = 256 - value;
       return;
 
     case NR32:
@@ -485,30 +461,23 @@ export function audio_write(address: number, value: number): void {
 
     case NR33:
       ctx.ch3.nr33 = value;
-      ctx.ch3.period_value = (ctx.ch3.period_value & 0x0700) | value;
+      ctx.ch3.period_value =
+        (ctx.ch3.period_value & 0x0700) | value;
       return;
 
     case NR34: {
-      const old_len_en = ctx.ch3.length_enabled;
-
       ctx.ch3.nr34 = value;
       ctx.ch3.period_value =
-        (ctx.ch3.period_value & 0x00ff) | ((value & 0x07) << 8);
+        (ctx.ch3.period_value & 0x00ff) |
+        ((value & 0x07) << 8);
 
-      handle_nrx4_write(
-        ctx.ch3,
-        old_len_en,
-        (value & 0x40) !== 0,
-        (value & 0x80) !== 0,
-        () => trigger_wave(),
-      );
-
+      write_nrx4_wave(value);
       return;
     }
 
     case NR41:
       ctx.ch4.nr41 = value;
-      ctx.ch4.length_counter = 64 - (value & 0x3f);
+      ctx.ch4.length.counter = 64 - (value & 0x3f);
       return;
 
     case NR42:
@@ -524,16 +493,9 @@ export function audio_write(address: number, value: number): void {
       return;
 
     case NR44: {
-      const old_len_en = ctx.ch4.length_enabled;
-      const new_len_en = (value & 0x40) !== 0;
-      const trigger = (value & 0x80) !== 0;
-
       ctx.ch4.nr44 = value;
 
-      handle_nrx4_write(ctx.ch4, old_len_en, new_len_en, trigger, () =>
-        trigger_noise(),
-      );
-
+      write_nrx4_noise(value);
       return;
     }
 
@@ -546,9 +508,7 @@ export function audio_write(address: number, value: number): void {
       return;
 
     default:
-      if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-        wave_ram_write(address - WAVE_RAM_START, value);
-      }
+      break;
   }
 }
 

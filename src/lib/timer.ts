@@ -21,7 +21,10 @@ function apu_div_bit(value: number): boolean {
   return (value & (1 << 12)) !== 0;
 }
 
-function clock_apu_on_div_falling_edge(prev_div: number, next_div: number): void {
+function clock_apu_on_div_falling_edge(
+  prev_div: number,
+  next_div: number,
+): void {
   if (apu_div_bit(prev_div) && !apu_div_bit(next_div)) {
     audio_on_div_falling_edge();
   }
@@ -48,24 +51,20 @@ export function timer_tick(): void {
 
   switch (ctx.tac & 0b11) {
     case 0b00:
-      timer_update =
-        (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
+      timer_update = (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
       break;
     case 0b01:
-      timer_update =
-        (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
+      timer_update = (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
       break;
     case 0b10:
-      timer_update =
-        (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
+      timer_update = (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
       break;
     case 0b11:
-      timer_update =
-        (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
+      timer_update = (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
       break;
   }
 
-  if (timer_update && (ctx.tac & (1 << 2))) {
+  if (timer_update && ctx.tac & (1 << 2)) {
     if (ctx.tima === 0xff) {
       ctx.tima = ctx.tma & 0xff;
       cpu_request_interrupt(IT_TIMER);

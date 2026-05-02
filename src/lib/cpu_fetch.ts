@@ -67,8 +67,8 @@ export function fetch_data(ctx: cpu_context): void {
         address = (address | 0xff00) & 0xffff;
       }
 
-      ctx.fetched_data = bus_read(address) & 0xff;
       emu_cycles(1);
+      ctx.fetched_data = bus_read(address) & 0xff;
       return;
     }
 
@@ -76,8 +76,8 @@ export function fetch_data(ctx: cpu_context): void {
       const address =
         cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
 
-      ctx.fetched_data = bus_read(address) & 0xff;
       emu_cycles(1);
+      ctx.fetched_data = bus_read(address) & 0xff;
 
       cpu_set_register(
         ctx,
@@ -91,14 +91,39 @@ export function fetch_data(ctx: cpu_context): void {
       const address =
         cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
 
-      ctx.fetched_data = bus_read(address) & 0xff;
       emu_cycles(1);
+      ctx.fetched_data = bus_read(address) & 0xff;
 
       cpu_set_register(
         ctx,
         "RT_HL",
         (cpu_read_register(ctx, "RT_HL") - 1) & 0xffff,
       );
+      return;
+    }
+
+    case "AM_MR":
+      ctx.memory_destination =
+        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
+      ctx.destination_is_memory = true;
+
+      emu_cycles(1);
+      ctx.fetched_data = bus_read(ctx.memory_destination) & 0xff;
+      return;
+
+    case "AM_R_A16": {
+      const lo = bus_read(ctx.registers.PC) & 0xff;
+      emu_cycles(1);
+
+      const hi = bus_read((ctx.registers.PC + 1) & 0xffff) & 0xff;
+      emu_cycles(1);
+
+      const address = (lo | (hi << 8)) & 0xffff;
+
+      ctx.registers.PC = (ctx.registers.PC + 2) & 0xffff;
+
+      emu_cycles(1);
+      ctx.fetched_data = bus_read(address) & 0xff;
       return;
     }
 

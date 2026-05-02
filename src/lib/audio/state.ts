@@ -59,7 +59,9 @@ function make_queue_buffers(capacity: number): {
   };
 }
 
-const initial_buffers = make_queue_buffers(DEFAULT_MAX_BUFFERED_SAMPLES);
+const initial_buffers = make_queue_buffers(
+  DEFAULT_MAX_BUFFERED_SAMPLES,
+);
 
 export const ctx: apu_context = {
   enabled: false,

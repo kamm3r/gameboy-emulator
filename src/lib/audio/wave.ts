@@ -1,11 +1,13 @@
+// wave.ts
+
 import { ctx } from "./state";
+import type { length_counter_state } from "./length-counter";
 
 export type wave_channel = {
   enabled: boolean;
   dac_enabled: boolean;
 
-  length_enabled: boolean;
-  length_counter: number;
+  length: length_counter_state;
 
   period_value: number;
   freq_timer: number;
@@ -14,8 +16,7 @@ export type wave_channel = {
   wave_pos: number;
   sample_latch: number;
 
-  last_read_byte: number;
-  access_window: number;
+  just_accessed: boolean;
 
   nr30: number;
   nr31: number;
@@ -29,8 +30,7 @@ export function make_wave_channel(): wave_channel {
     enabled: false,
     dac_enabled: false,
 
-    length_enabled: false,
-    length_counter: 0,
+    length: { enabled: false, counter: 0 },
 
     period_value: 0,
     freq_timer: 0,
@@ -39,8 +39,7 @@ export function make_wave_channel(): wave_channel {
     wave_pos: 0,
     sample_latch: 0,
 
-    last_read_byte: 0,
-    access_window: 0,
+    just_accessed: false,
 
     nr30: 0,
     nr31: 0,
@@ -58,46 +57,8 @@ export function wave_timer_reload(period_value: number): number {
   return (2048 - (period_value & 0x7ff)) * 2;
 }
 
-function wave_fetch_sample(sample_index: number): number {
-  const ch = ctx.ch3;
-  const byte_index = (sample_index >> 1) & 0x0f;
-  const byte = ctx.wave_ram[byte_index];
-
-  ch.last_read_byte = byte_index;
-  ch.access_window = 2;
-
-  // GB wave RAM plays high nibble first, then low nibble.
-  return (sample_index & 1) === 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
-}
-
-function wave_accessible_while_on(): boolean {
-  return ctx.ch3.access_window > 0;
-}
-
-function wave_corrupt_on_retrigger(): void {
-  const ch = ctx.ch3;
-
-  if (!wave_accessible_while_on()) {
-    return;
-  }
-
-  const byte = ch.last_read_byte & 0x0f;
-
-  // DMG retrigger corruption behavior:
-  // - if the currently accessed byte is in the first 4 bytes, copy that byte
-  //   into wave RAM byte 0
-  // - otherwise copy the aligned 4-byte block into bytes 0-3
-  if (byte < 4) {
-    ctx.wave_ram[0] = ctx.wave_ram[byte];
-    return;
-  }
-
-  const base = byte & ~0x03;
-
-  ctx.wave_ram[0] = ctx.wave_ram[base];
-  ctx.wave_ram[1] = ctx.wave_ram[base + 1];
-  ctx.wave_ram[2] = ctx.wave_ram[base + 2];
-  ctx.wave_ram[3] = ctx.wave_ram[base + 3];
+function current_wave_byte_index(): number {
+  return (ctx.ch3.wave_pos >> 1) & 0x0f;
 }
 
 export function wave_ram_read(index: number): number {
@@ -108,14 +69,17 @@ export function wave_ram_read(index: number): number {
     return ctx.wave_ram[i];
   }
 
-  if (wave_accessible_while_on()) {
-    return ctx.wave_ram[ch.last_read_byte];
+  if (ch.just_accessed) {
+    return ctx.wave_ram[current_wave_byte_index()];
   }
 
   return 0xff;
 }
 
-export function wave_ram_write(index: number, value: number): void {
+export function wave_ram_write(
+  index: number,
+  value: number,
+): void {
   const ch = ctx.ch3;
   const i = index & 0x0f;
   const v = value & 0xff;
@@ -125,11 +89,34 @@ export function wave_ram_write(index: number, value: number): void {
     return;
   }
 
-  if (wave_accessible_while_on()) {
-    ctx.wave_ram[ch.last_read_byte] = v;
+  if (ch.just_accessed) {
+    ctx.wave_ram[current_wave_byte_index()] = v;
   }
 }
 
+function wave_corrupt_on_retrigger(): void {
+  const ch = ctx.ch3;
+
+  if (!ch.just_accessed) {
+    return;
+  }
+
+  const pos = current_wave_byte_index();
+
+  if (pos < 4) {
+    ctx.wave_ram[0] = ctx.wave_ram[pos];
+  } else {
+    const base = pos & ~0x03;
+    ctx.wave_ram[0] = ctx.wave_ram[base];
+    ctx.wave_ram[1] = ctx.wave_ram[base + 1];
+    ctx.wave_ram[2] = ctx.wave_ram[base + 2];
+    ctx.wave_ram[3] = ctx.wave_ram[base + 3];
+  }
+}
+
+/**
+ * Trigger wave channel. Length counter reload handled externally.
+ */
 export function trigger_wave(): void {
   const ch = ctx.ch3;
 
@@ -139,25 +126,24 @@ export function trigger_wave(): void {
 
   ch.enabled = ch.dac_enabled;
 
-  if (ch.length_counter === 0) {
-    ch.length_counter = 256;
-  }
-
-  ch.freq_timer = wave_timer_reload(ch.period_value);
+  ch.freq_timer = wave_timer_reload(ch.period_value) + 6;
   ch.wave_pos = 0;
-  ch.sample_latch = wave_fetch_sample(0);
+  ch.just_accessed = false;
 }
 
 export function wave_output(): number {
   const ch = ctx.ch3;
 
-  if (!ch.enabled || !ch.dac_enabled || ch.volume_code === 0) {
+  if (!ch.enabled || !ch.dac_enabled) {
     return 0;
   }
 
   let sample = ch.sample_latch & 0x0f;
 
   switch (ch.volume_code) {
+    case 0:
+      sample >>= 4;
+      break;
     case 1:
       break;
     case 2:
@@ -168,15 +154,13 @@ export function wave_output(): number {
       break;
   }
 
-  return 1 - (sample / 15) * 2;
+  return sample / 7.5 - 1;
 }
 
 export function tick_wave(): void {
   const ch = ctx.ch3;
 
-  if (ch.access_window > 0) {
-    ch.access_window--;
-  }
+  ch.just_accessed = false;
 
   if (ch.freq_timer > 0) {
     ch.freq_timer--;
@@ -185,6 +169,15 @@ export function tick_wave(): void {
   if (ch.freq_timer <= 0) {
     ch.freq_timer = wave_timer_reload(ch.period_value);
     ch.wave_pos = (ch.wave_pos + 1) & 31;
-    ch.sample_latch = wave_fetch_sample(ch.wave_pos);
+
+    const byte_index = current_wave_byte_index();
+    const byte = ctx.wave_ram[byte_index];
+
+    ch.just_accessed = true;
+
+    ch.sample_latch =
+      (ch.wave_pos & 1) === 0
+        ? (byte >> 4) & 0x0f
+        : byte & 0x0f;
   }
 }
