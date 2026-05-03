@@ -14,11 +14,7 @@ type EnvelopeChannel = {
 };
 
 function step_envelope(channel: EnvelopeChannel): void {
-  if (
-    !channel.enabled ||
-    !channel.dac_enabled ||
-    channel.envelope_period === 0
-  ) {
+  if (channel.envelope_period === 0) {
     return;
   }
 

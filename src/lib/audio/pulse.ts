@@ -95,17 +95,16 @@ function sweep_timer_reload(period: number): number {
   return period === 0 ? 8 : period;
 }
 
-/**
- * Trigger pulse channel. Length counter reload is handled externally
- * by length_counter_handle_nrx4.
- */
 export function trigger_pulse(
   ch: pulse_channel,
   with_sweep: boolean,
 ): void {
   ch.enabled = ch.dac_enabled;
 
+  // Frequency timer is reloaded with full period
   ch.freq_timer = pulse_timer_reload(ch.period_value);
+
+  // Envelope
   ch.envelope_timer =
     ch.envelope_period === 0 ? 8 : ch.envelope_period;
   ch.current_volume = ch.initial_volume;
@@ -114,12 +113,14 @@ export function trigger_pulse(
     return;
   }
 
+  // Sweep
   ch.shadow_period = ch.period_value & MAX_PERIOD;
   ch.sweep_timer = sweep_timer_reload(ch.sweep_period);
   ch.sweep_enabled =
     ch.sweep_period !== 0 || ch.sweep_shift !== 0;
   ch.sweep_negate_used = false;
 
+  // Overflow check on trigger if shift != 0
   if (ch.sweep_shift !== 0) {
     const target = calc_sweep_target(
       ch.shadow_period,
@@ -197,6 +198,7 @@ export function step_sweep(): void {
     ch.shadow_period = new_period & MAX_PERIOD;
     ch.period_value = new_period & MAX_PERIOD;
 
+    // Second overflow check
     const second_check = calc_sweep_target(
       ch.shadow_period,
       ch.sweep_shift,

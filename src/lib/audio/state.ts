@@ -1,11 +1,22 @@
+// state.ts
+
 import {
   CPU_HZ,
   DEFAULT_MAX_BUFFERED_SAMPLES,
   DEFAULT_SAMPLE_RATE,
 } from "./constants";
-import { make_noise_channel, type noise_channel } from "./noise";
-import { make_pulse_channel, type pulse_channel } from "./pulse";
-import { make_wave_channel, type wave_channel } from "./wave";
+import {
+  make_noise_channel,
+  type noise_channel,
+} from "./noise";
+import {
+  make_pulse_channel,
+  type pulse_channel,
+} from "./pulse";
+import {
+  make_wave_channel,
+  type wave_channel,
+} from "./wave";
 
 export type audio_options = {
   sample_rate?: number;

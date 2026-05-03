@@ -20,9 +20,8 @@ export function length_counter_step(
 /**
  * Handle NRx4 write. Returns the new channel-enabled state.
  *
- * The `on_trigger` callback must perform all trigger actions EXCEPT
- * length reload (which this function handles). It must return the
- * channel enabled state after trigger.
+ * next_step_clocks_length: true if the NEXT frame sequencer step
+ * will clock the length counter (i.e., next step is even: 0,2,4,6).
  */
 export function length_counter_handle_nrx4(
   lc: length_counter_state,
@@ -34,22 +33,23 @@ export function length_counter_handle_nrx4(
   next_step_clocks_length: boolean,
   on_trigger: () => boolean,
 ): boolean {
-  // We are in the "first half" if the next step does NOT clock length.
-  // Steps 0,2,4,6 clock length. So if the next step is odd, we're in
-  // second half. If the next step is even, we're in first half... wait.
+  // "first half" = the next step will NOT clock length.
+  // This means we are in a position where the extra clock applies
+  // when length enable goes from 0 to 1.
   //
-  // Actually: "first half" means the CURRENT frame sequencer position
-  // is such that the NEXT length clock hasn't happened yet.
-  // Length is clocked on steps 0,2,4,6.
-  // If we are at step 7 (next=0, which clocks length), we are NOT in
-  // first half. "first half" = next step does NOT clock length.
-  const first_half = !next_step_clocks_length;
+  // Actually the correct definition used by blargg tests:
+  // The extra clock happens when the current frame sequencer position
+  // is such that the length counter was NOT JUST clocked but WILL be
+  // clocked next. The standard convention is:
+  //   extra_clock_applies = next step IS a length step
+  const extra_clock = next_step_clocks_length;
 
-  // Extra clock when enabling length counter in first half
+  // Extra clock: enabling length when next step clocks length,
+  // with non-zero counter
   if (
     !old_length_enabled &&
     new_length_enabled &&
-    first_half &&
+    extra_clock &&
     lc.counter > 0
   ) {
     lc.counter--;
@@ -61,18 +61,13 @@ export function length_counter_handle_nrx4(
   lc.enabled = new_length_enabled;
 
   if (trigger) {
-    // Reload length if it's zero
     if (lc.counter === 0) {
       lc.counter = max_length;
-
-      // Extra clock: if enabling length in first half, decrement
-      // the freshly loaded max length
-      if (new_length_enabled && first_half) {
+      if (new_length_enabled && extra_clock) {
         lc.counter--;
       }
     }
 
-    // Execute trigger callback
     channel_enabled = on_trigger();
   }
 

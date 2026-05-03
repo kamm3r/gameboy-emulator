@@ -58,6 +58,10 @@ import {
   wave_ram_write,
 } from "./wave";
 
+/**
+ * Returns true if the NEXT frame sequencer step will clock length.
+ * Length is clocked on steps 0, 2, 4, 6 (even steps).
+ */
 function next_frame_step_clocks_length(): boolean {
   const next_step = (ctx.frame_seq_step + 1) & 7;
   return (next_step & 1) === 0;
@@ -162,6 +166,7 @@ function apu_update_nr52(): void {
 function power_off_pulse(ch: typeof ctx.ch1): void {
   const len_counter = ch.length.counter;
   Object.assign(ch, make_pulse_channel());
+  // On DMG, length counter is preserved across power off
   ch.length.counter = len_counter;
 }
 
@@ -185,8 +190,6 @@ function power_off_apu(): void {
   power_off_noise(ctx.ch4);
   ctx.nr50 = 0;
   ctx.nr51 = 0;
-  ctx.frame_seq_step = 7;
-  ctx.div_apu_counter = 0;
   ctx.hpf_cap_l = 0;
   ctx.hpf_cap_r = 0;
 }
@@ -194,7 +197,6 @@ function power_off_apu(): void {
 function power_on_apu(): void {
   ctx.enabled = true;
   ctx.frame_seq_step = 7;
-  ctx.div_apu_counter = 0;
 }
 
 export function audio_init(options?: audio_options): void {
@@ -219,7 +221,9 @@ export function audio_init(options?: audio_options): void {
   apu_update_nr52();
 }
 
-export function audio_set_sample_rate(sample_rate: number): void {
+export function audio_set_sample_rate(
+  sample_rate: number,
+): void {
   if (!Number.isFinite(sample_rate) || sample_rate <= 0) {
     return;
   }
@@ -328,7 +332,7 @@ export function audio_write(
 ): void {
   value &= 0xff;
 
-  // Wave RAM is always accessible
+  // Wave RAM is always accessible regardless of power state
   if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
     wave_ram_write(address - WAVE_RAM_START, value);
     return;
@@ -494,7 +498,6 @@ export function audio_write(
 
     case NR44: {
       ctx.ch4.nr44 = value;
-
       write_nrx4_noise(value);
       return;
     }

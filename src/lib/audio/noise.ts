@@ -61,9 +61,6 @@ export function noise_timer_reload(
   return NOISE_DIVISORS[divisor_code & 7] << (clock_shift & 0x0f);
 }
 
-/**
- * Trigger noise channel. Length counter reload handled externally.
- */
 export function trigger_noise(): void {
   const ch = ctx.ch4;
 

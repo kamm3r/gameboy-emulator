@@ -16,8 +16,6 @@ export type wave_channel = {
   wave_pos: number;
   sample_latch: number;
 
-  just_accessed: boolean;
-
   nr30: number;
   nr31: number;
   nr32: number;
@@ -39,8 +37,6 @@ export function make_wave_channel(): wave_channel {
     wave_pos: 0,
     sample_latch: 0,
 
-    just_accessed: false,
-
     nr30: 0,
     nr31: 0,
     nr32: 0,
@@ -57,10 +53,6 @@ export function wave_timer_reload(period_value: number): number {
   return (2048 - (period_value & 0x7ff)) * 2;
 }
 
-function current_wave_byte_index(): number {
-  return (ctx.ch3.wave_pos >> 1) & 0x0f;
-}
-
 export function wave_ram_read(index: number): number {
   const ch = ctx.ch3;
   const i = index & 0x0f;
@@ -69,11 +61,10 @@ export function wave_ram_read(index: number): number {
     return ctx.wave_ram[i];
   }
 
-  if (ch.just_accessed) {
-    return ctx.wave_ram[current_wave_byte_index()];
-  }
-
-  return 0xff;
+  // When channel is on (DMG), wave RAM is only accessible
+  // when the wave channel has just read from it (same T-cycle).
+  // We approximate this: return the byte at the current read position.
+  return ctx.wave_ram[ch.wave_pos >> 1];
 }
 
 export function wave_ram_write(
@@ -89,46 +80,18 @@ export function wave_ram_write(
     return;
   }
 
-  if (ch.just_accessed) {
-    ctx.wave_ram[current_wave_byte_index()] = v;
-  }
+  // When channel is on (DMG), writes go to the byte the channel
+  // is currently reading from.
+  ctx.wave_ram[ch.wave_pos >> 1] = v;
 }
 
-function wave_corrupt_on_retrigger(): void {
-  const ch = ctx.ch3;
-
-  if (!ch.just_accessed) {
-    return;
-  }
-
-  const pos = current_wave_byte_index();
-
-  if (pos < 4) {
-    ctx.wave_ram[0] = ctx.wave_ram[pos];
-  } else {
-    const base = pos & ~0x03;
-    ctx.wave_ram[0] = ctx.wave_ram[base];
-    ctx.wave_ram[1] = ctx.wave_ram[base + 1];
-    ctx.wave_ram[2] = ctx.wave_ram[base + 2];
-    ctx.wave_ram[3] = ctx.wave_ram[base + 3];
-  }
-}
-
-/**
- * Trigger wave channel. Length counter reload handled externally.
- */
 export function trigger_wave(): void {
   const ch = ctx.ch3;
-
-  if (ch.enabled) {
-    wave_corrupt_on_retrigger();
-  }
 
   ch.enabled = ch.dac_enabled;
 
   ch.freq_timer = wave_timer_reload(ch.period_value) + 6;
   ch.wave_pos = 0;
-  ch.just_accessed = false;
 }
 
 export function wave_output(): number {
@@ -160,8 +123,6 @@ export function wave_output(): number {
 export function tick_wave(): void {
   const ch = ctx.ch3;
 
-  ch.just_accessed = false;
-
   if (ch.freq_timer > 0) {
     ch.freq_timer--;
   }
@@ -170,10 +131,8 @@ export function tick_wave(): void {
     ch.freq_timer = wave_timer_reload(ch.period_value);
     ch.wave_pos = (ch.wave_pos + 1) & 31;
 
-    const byte_index = current_wave_byte_index();
+    const byte_index = (ch.wave_pos >> 1) & 0x0f;
     const byte = ctx.wave_ram[byte_index];
-
-    ch.just_accessed = true;
 
     ch.sample_latch =
       (ch.wave_pos & 1) === 0
