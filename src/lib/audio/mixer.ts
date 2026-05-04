@@ -1,21 +1,8 @@
-import { BIT } from "@/lib/common";
 import { noise_output } from "./noise";
 import { pulse_output } from "./pulse";
 import { audio_push_sample } from "./queue";
 import { ctx } from "./state";
 import { wave_output } from "./wave";
-
-function clamp_sample(v: number): number {
-  if (v > 1) {
-    return 1;
-  }
-
-  if (v < -1) {
-    return -1;
-  }
-
-  return v;
-}
 
 function high_pass_left(input: number): number {
   const output = input - ctx.hpf_cap_l;
@@ -29,55 +16,43 @@ function high_pass_right(input: number): number {
   return output;
 }
 
+function clamp(v: number): number {
+  return v > 1 ? 1 : v < -1 ? -1 : v;
+}
+
 export function mix_and_push_sample(): void {
   if (!ctx.enabled) {
     audio_push_sample(0, 0);
     return;
   }
 
-  const ch1 = pulse_output(ctx.ch1);
-  const ch2 = pulse_output(ctx.ch2);
-  const ch3 = wave_output();
-  const ch4 = noise_output();
+  const c1 = pulse_output(ctx.ch1);
+  const c2 = pulse_output(ctx.ch2);
+  const c3 = wave_output();
+  const c4 = noise_output();
 
+  const nr51 = ctx.nr51;
   let left = 0;
   let right = 0;
 
-  if (BIT(ctx.nr51, 4)) {
-    left += ch1;
-  }
-  if (BIT(ctx.nr51, 5)) {
-    left += ch2;
-  }
-  if (BIT(ctx.nr51, 6)) {
-    left += ch3;
-  }
-  if (BIT(ctx.nr51, 7)) {
-    left += ch4;
-  }
+  if (nr51 & 0x10) left += c1;
+  if (nr51 & 0x20) left += c2;
+  if (nr51 & 0x40) left += c3;
+  if (nr51 & 0x80) left += c4;
 
-  if (BIT(ctx.nr51, 0)) {
-    right += ch1;
-  }
-  if (BIT(ctx.nr51, 1)) {
-    right += ch2;
-  }
-  if (BIT(ctx.nr51, 2)) {
-    right += ch3;
-  }
-  if (BIT(ctx.nr51, 3)) {
-    right += ch4;
-  }
+  if (nr51 & 0x01) right += c1;
+  if (nr51 & 0x02) right += c2;
+  if (nr51 & 0x04) right += c3;
+  if (nr51 & 0x08) right += c4;
 
-  // NR50 volume: 0-7 maps to 1/8 to 8/8
-  const left_volume = (1 + ((ctx.nr50 >> 4) & 0x07)) / 8;
-  const right_volume = (1 + (ctx.nr50 & 0x07)) / 8;
+  const lv = (1 + ((ctx.nr50 >>> 4) & 7)) / 8;
+  const rv = (1 + (ctx.nr50 & 7)) / 8;
 
-  left *= left_volume * 0.25;
-  right *= right_volume * 0.25;
+  left *= lv * 0.25;
+  right *= rv * 0.25;
 
   left = high_pass_left(left);
   right = high_pass_right(right);
 
-  audio_push_sample(clamp_sample(left), clamp_sample(right));
+  audio_push_sample(clamp(left), clamp(right));
 }
