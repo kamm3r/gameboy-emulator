@@ -32,21 +32,38 @@ export function mix_and_push_sample(): void {
   const c4 = noise_output();
 
   const nr51 = ctx.nr51;
+
   let left = 0;
   let right = 0;
 
-  if (nr51 & 0x10) left += c1;
-  if (nr51 & 0x20) left += c2;
-  if (nr51 & 0x40) left += c3;
-  if (nr51 & 0x80) left += c4;
+  if ((nr51 & 0x10) !== 0) {
+    left += c1;
+  }
+  if ((nr51 & 0x20) !== 0) {
+    left += c2;
+  }
+  if ((nr51 & 0x40) !== 0) {
+    left += c3;
+  }
+  if ((nr51 & 0x80) !== 0) {
+    left += c4;
+  }
 
-  if (nr51 & 0x01) right += c1;
-  if (nr51 & 0x02) right += c2;
-  if (nr51 & 0x04) right += c3;
-  if (nr51 & 0x08) right += c4;
+  if ((nr51 & 0x01) !== 0) {
+    right += c1;
+  }
+  if ((nr51 & 0x02) !== 0) {
+    right += c2;
+  }
+  if ((nr51 & 0x04) !== 0) {
+    right += c3;
+  }
+  if ((nr51 & 0x08) !== 0) {
+    right += c4;
+  }
 
-  const lv = (1 + ((ctx.nr50 >>> 4) & 7)) / 8;
-  const rv = (1 + (ctx.nr50 & 7)) / 8;
+  const lv = (((ctx.nr50 >> 4) & 7) + 1) / 8;
+  const rv = ((ctx.nr50 & 7) + 1) / 8;
 
   left *= lv * 0.25;
   right *= rv * 0.25;

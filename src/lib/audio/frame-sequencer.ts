@@ -1,10 +1,10 @@
-// frame-sequencer.ts
-
 import { step_sweep } from "./pulse";
-import { ctx, type length_counter, type envelope } from "./state";
+import { ctx, type envelope, type length_counter } from "./state";
 
 function step_length(lc: length_counter, ch: { enabled: boolean }): void {
-  if (!lc.enabled || lc.counter === 0) return;
+  if (!lc.enabled || lc.counter === 0) {
+    return;
+  }
 
   lc.counter--;
 
@@ -18,17 +18,28 @@ function step_envelope(
   enabled: boolean,
   dac_enabled: boolean,
 ): void {
-  if (!enabled || !dac_enabled || env.period === 0) return;
+  if (!enabled || !dac_enabled) {
+    return;
+  }
 
   env.timer--;
-  if (env.timer > 0) return;
+
+  if (env.timer > 0) {
+    return;
+  }
 
   env.timer = env.period === 0 ? 8 : env.period;
 
+  if (env.period === 0) {
+    return;
+  }
+
   if (env.add_mode) {
-    if (env.current_volume < 15) env.current_volume++;
-  } else {
-    if (env.current_volume > 0) env.current_volume--;
+    if (env.current_volume < 15) {
+      env.current_volume++;
+    }
+  } else if (env.current_volume > 0) {
+    env.current_volume--;
   }
 }
 
@@ -46,23 +57,22 @@ function step_all_envelopes(): void {
 }
 
 export function frame_sequencer_tick(): void {
-  const step = (ctx.frame_seq_step + 1) & 7;
-  ctx.frame_seq_step = step;
+  ctx.frame_seq_step = (ctx.frame_seq_step + 1) & 7;
 
-  switch (step) {
+  switch (ctx.frame_seq_step) {
     case 0:
     case 4:
       step_all_lengths();
-      return;
+      break;
+
     case 2:
     case 6:
       step_all_lengths();
       step_sweep();
-      return;
+      break;
+
     case 7:
       step_all_envelopes();
-      return;
-    default:
-      return;
+      break;
   }
 }

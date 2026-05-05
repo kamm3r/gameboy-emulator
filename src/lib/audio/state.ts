@@ -1,5 +1,3 @@
-// state.ts
-
 import {
   CPU_HZ,
   DEFAULT_MAX_BUFFERED_SAMPLES,
@@ -72,7 +70,7 @@ export type wave_channel = {
   sample_latch: number;
 
   last_read_byte: number;
-  access_clocks: number;
+  access_countdown: number;
 
   nr30: number;
   nr31: number;
@@ -143,19 +141,27 @@ export function make_envelope(): envelope {
 }
 
 export function make_length_counter(): length_counter {
-  return { counter: 0, enabled: false };
+  return {
+    counter: 0,
+    enabled: false,
+  };
 }
 
 export function make_pulse_channel(): pulse_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length: make_length_counter(),
+
     duty: 0,
     duty_pos: 0,
+
     period_value: 0,
     freq_timer: 0,
+
     env: make_envelope(),
+
     sweep_period: 0,
     sweep_negate: false,
     sweep_shift: 0,
@@ -163,6 +169,7 @@ export function make_pulse_channel(): pulse_channel {
     sweep_enabled: false,
     shadow_period: 0,
     sweep_negate_used: false,
+
     nrx0: 0,
     nrx1: 0,
     nrx2: 0,
@@ -175,14 +182,19 @@ export function make_wave_channel(): wave_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length: make_length_counter(),
+
     period_value: 0,
     freq_timer: 0,
+
     volume_code: 0,
     wave_pos: 0,
     sample_latch: 0,
+
     last_read_byte: 0,
-    access_clocks: 0,
+    access_countdown: 0,
+
     nr30: 0,
     nr31: 0,
     nr32: 0,
@@ -195,13 +207,17 @@ export function make_noise_channel(): noise_channel {
   return {
     enabled: false,
     dac_enabled: false,
+
     length: make_length_counter(),
+
     clock_shift: 0,
     lfsr_width_mode: false,
     divisor_code: 0,
     freq_timer: 8,
     lfsr: 0x7fff,
+
     env: make_envelope(),
+
     nr41: 0,
     nr42: 0,
     nr43: 0,
@@ -216,30 +232,35 @@ function make_queue_buffers(capacity: number) {
   };
 }
 
-const initial_buffers = make_queue_buffers(
-  DEFAULT_MAX_BUFFERED_SAMPLES,
-);
+const initial_buffers = make_queue_buffers(DEFAULT_MAX_BUFFERED_SAMPLES);
 
 export const ctx: apu_context = {
   enabled: false,
+
   ch1: make_pulse_channel(),
   ch2: make_pulse_channel(),
   ch3: make_wave_channel(),
   ch4: make_noise_channel(),
+
   nr50: 0,
   nr51: 0,
-  nr52: 0,
+  nr52: 0x70,
+
   wave_ram: new Uint8Array(16),
-  frame_seq_step: 0,
+
+  frame_seq_step: 7,
+
   sample_rate: DEFAULT_SAMPLE_RATE,
   cycles_per_sample: CPU_HZ / DEFAULT_SAMPLE_RATE,
   sample_cycle_accum: 0,
   max_buffered_samples: DEFAULT_MAX_BUFFERED_SAMPLES,
+
   sample_queue_l: initial_buffers.l,
   sample_queue_r: initial_buffers.r,
   sample_queue_read: 0,
   sample_queue_write: 0,
   sample_queue_count: 0,
+
   hpf_cap_l: 0,
   hpf_cap_r: 0,
 };

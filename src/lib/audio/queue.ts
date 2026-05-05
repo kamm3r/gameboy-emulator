@@ -1,5 +1,3 @@
-// queue.ts
-
 import { ctx, type audio_sample_chunk } from "./state";
 
 function queue_capacity(): number {
@@ -22,30 +20,27 @@ export function trim_audio_queue(): void {
     return;
   }
 
-  while (ctx.sample_queue_count > ctx.max_buffered_samples) {
-    ctx.sample_queue_read =
-      (ctx.sample_queue_read + 1) % queue_capacity();
+  while (ctx.sample_queue_count > capacity) {
+    ctx.sample_queue_read = (ctx.sample_queue_read + 1) % capacity;
     ctx.sample_queue_count--;
   }
 }
 
-export function audio_push_sample(
-  left: number,
-  right: number,
-): void {
+export function audio_push_sample(left: number, right: number): void {
   const capacity = queue_capacity();
-  if (capacity <= 0) return;
+
+  if (capacity <= 0) {
+    return;
+  }
 
   if (ctx.sample_queue_count >= capacity) {
-    ctx.sample_queue_read =
-      (ctx.sample_queue_read + 1) % capacity;
+    ctx.sample_queue_read = (ctx.sample_queue_read + 1) % capacity;
     ctx.sample_queue_count--;
   }
 
   ctx.sample_queue_l[ctx.sample_queue_write] = left;
   ctx.sample_queue_r[ctx.sample_queue_write] = right;
-  ctx.sample_queue_write =
-    (ctx.sample_queue_write + 1) % capacity;
+  ctx.sample_queue_write = (ctx.sample_queue_write + 1) % capacity;
   ctx.sample_queue_count++;
 }
 
@@ -53,9 +48,7 @@ export function audio_get_queued_sample_count(): number {
   return ctx.sample_queue_count;
 }
 
-export function audio_consume_samples(
-  max_samples?: number,
-): audio_sample_chunk {
+export function audio_consume_samples(max_samples?: number): audio_sample_chunk {
   const available = ctx.sample_queue_count;
   const count =
     max_samples === undefined
@@ -66,14 +59,17 @@ export function audio_consume_samples(
   const right = new Float32Array(count);
   const capacity = queue_capacity();
 
+  if (capacity <= 0) {
+    return { left, right };
+  }
+
   for (let i = 0; i < count; i++) {
     const idx = (ctx.sample_queue_read + i) % capacity;
     left[i] = ctx.sample_queue_l[idx];
     right[i] = ctx.sample_queue_r[idx];
   }
 
-  ctx.sample_queue_read =
-    (ctx.sample_queue_read + count) % capacity;
+  ctx.sample_queue_read = (ctx.sample_queue_read + count) % capacity;
   ctx.sample_queue_count -= count;
 
   return { left, right };

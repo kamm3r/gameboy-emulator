@@ -1,5 +1,3 @@
-// constants.ts
-
 export const CPU_HZ = 4_194_304;
 export const DEFAULT_SAMPLE_RATE = 48_000;
 export const DEFAULT_MAX_BUFFERED_SAMPLES = 16_384;
@@ -34,10 +32,10 @@ export const WAVE_RAM_START = 0xff30;
 export const WAVE_RAM_END = 0xff3f;
 
 export const DUTY_PATTERNS: ReadonlyArray<ReadonlyArray<number>> = [
-  [0, 0, 0, 0, 0, 0, 0, 1], // 12.5%
-  [1, 0, 0, 0, 0, 0, 0, 1], // 25%
-  [1, 0, 0, 0, 0, 1, 1, 1], // 50%
-  [0, 1, 1, 1, 1, 1, 1, 0], // 75%
+  [0, 0, 0, 0, 0, 0, 0, 1],
+  [1, 0, 0, 0, 0, 0, 0, 1],
+  [1, 0, 0, 0, 0, 1, 1, 1],
+  [0, 1, 1, 1, 1, 1, 1, 0],
 ];
 
-export const NOISE_DIVISORS = [8, 16, 32, 48, 64, 80, 96, 112];
+export const NOISE_DIVISORS = [8, 16, 32, 48, 64, 80, 96, 112] as const;
