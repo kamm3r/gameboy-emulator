@@ -1,13 +1,15 @@
 import { BETWEEN } from "@/lib/common";
-import { timer_read, timer_write } from "@/lib/timer";
 import { cpu_get_int_flags, cpu_set_int_flags } from "@/lib/cpu";
 import { gamepad_get_output, gamepad_set_sel } from "@/lib/gamepad";
 import { lcd_read, lcd_write } from "@/lib/lcd";
+import { timer_read, timer_write } from "@/lib/timer";
 import { audio_read, audio_write } from "./audio/apu";
 
 const serialData = new Uint8Array(2);
 
 export function io_read(address: number): number {
+  address &= 0xffff;
+
   if (address === 0xff00) {
     return gamepad_get_output();
   }
@@ -36,11 +38,13 @@ export function io_read(address: number): number {
     return lcd_read(address);
   }
 
-  console.log(`UNSUPPORTED bus_read(${address.toString(16).padStart(4, "0")})`);
-  return 0;
+  console.log(`UNSUPPORTED io_read(${address.toString(16).padStart(4, "0")})`);
+
+  return 0xff;
 }
 
 export function io_write(address: number, value: number): void {
+  address &= 0xffff;
   value &= 0xff;
 
   if (address === 0xff00) {
@@ -79,6 +83,6 @@ export function io_write(address: number, value: number): void {
   }
 
   console.log(
-    `UNSUPPORTED bus_write(${address.toString(16).padStart(4, "0")})`,
+    `UNSUPPORTED io_write(${address.toString(16).padStart(4, "0")})`,
   );
 }
