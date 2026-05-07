@@ -66,7 +66,7 @@ export function pulse_output(ch: pulse_channel): number {
   const duty_bit = DUTY_PATTERNS[ch.duty][ch.duty_pos];
   const digital = duty_bit ? ch.env.current_volume : 0;
 
-  return digital / 7.5 - 1.0;
+  return (digital / 15) * 2 - 1;
 }
 
 export function tick_pulse(ch: pulse_channel): void {

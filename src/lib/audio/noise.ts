@@ -27,7 +27,7 @@ export function noise_output(): number {
 
   const digital = (ch.lfsr & 1) === 0 ? ch.env.current_volume : 0;
 
-  return digital / 7.5 - 1.0;
+  return (digital / 15) * 2 - 1;
 }
 
 export function tick_noise(): void {

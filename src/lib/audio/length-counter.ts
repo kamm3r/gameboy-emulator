@@ -23,12 +23,10 @@ export function length_counter_handle_nrx4(
   next_step_clocks_length: boolean,
   on_trigger: () => boolean,
 ): boolean {
-  const first_half = !next_step_clocks_length;
-
   if (
     !old_length_enabled &&
     new_length_enabled &&
-    first_half &&
+    !next_step_clocks_length &&
     lc.counter > 0
   ) {
     lc.counter--;
@@ -47,7 +45,7 @@ export function length_counter_handle_nrx4(
   if (lc.counter === 0) {
     lc.counter = max_length;
 
-    if (new_length_enabled && first_half) {
+    if (new_length_enabled && !next_step_clocks_length) {
       lc.counter--;
     }
   }

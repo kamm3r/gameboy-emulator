@@ -59,10 +59,6 @@ function next_step_clocks_length(): boolean {
   return next === 0 || next === 2 || next === 4 || next === 6;
 }
 
-function in_first_half(): boolean {
-  return !next_step_clocks_length();
-}
-
 function handle_length_nrx4(
   lc: length_counter,
   ch_enabled: boolean,
@@ -70,11 +66,10 @@ function handle_length_nrx4(
   new_len_en: boolean,
   trigger: boolean,
   max_length: number,
-  do_trigger: () => void,
+  do_trigger: () => boolean,
 ): boolean {
-  const first = in_first_half();
-
-  if (!old_len_en && new_len_en && first && lc.counter > 0) {
+  const next_clocks_length = next_step_clocks_length();
+  if (!old_len_en && new_len_en && !next_clocks_length && lc.counter > 0) {
     lc.counter--;
 
     if (lc.counter === 0 && !trigger) {
@@ -91,14 +86,12 @@ function handle_length_nrx4(
   if (lc.counter === 0) {
     lc.counter = max_length;
 
-    if (new_len_en && first) {
+    if (new_len_en && !next_clocks_length) {
       lc.counter--;
     }
   }
 
-  do_trigger();
-
-  return ch_enabled;
+  return do_trigger();
 }
 
 function write_nrx4_pulse(
@@ -110,7 +103,7 @@ function write_nrx4_pulse(
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  const result = handle_length_nrx4(
+  ch.enabled = handle_length_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
@@ -119,12 +112,9 @@ function write_nrx4_pulse(
     64,
     () => {
       trigger_pulse(ch, with_sweep);
+      return ch.enabled;
     },
   );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
 }
 
 function write_nrx4_wave(value: number): void {
@@ -133,7 +123,7 @@ function write_nrx4_wave(value: number): void {
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  const result = handle_length_nrx4(
+  ch.enabled = handle_length_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
@@ -142,12 +132,9 @@ function write_nrx4_wave(value: number): void {
     256,
     () => {
       trigger_wave();
+      return ch.enabled;
     },
   );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
 }
 
 function write_nrx4_noise(value: number): void {
@@ -156,7 +143,7 @@ function write_nrx4_noise(value: number): void {
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  const result = handle_length_nrx4(
+  ch.enabled = handle_length_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
@@ -165,12 +152,9 @@ function write_nrx4_noise(value: number): void {
     64,
     () => {
       trigger_noise();
+      return ch.enabled;
     },
   );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
 }
 
 function write_envelope_reg(

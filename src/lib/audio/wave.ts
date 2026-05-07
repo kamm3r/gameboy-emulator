@@ -97,7 +97,7 @@ export function trigger_wave(): void {
     return;
   }
 
-  ch.freq_timer = 6;
+  ch.freq_timer = wave_timer_reload(ch.period_value);
   ch.wave_pos = 0;
   ch.sample_latch = 0;
   ch.access_countdown = 0;
