@@ -69,6 +69,7 @@ function handle_length_nrx4(
   do_trigger: () => boolean,
 ): boolean {
   const next_clocks_length = next_step_clocks_length();
+
   if (!old_len_en && new_len_en && !next_clocks_length && lc.counter > 0) {
     lc.counter--;
 
@@ -183,21 +184,57 @@ function update_nr52(): void {
     (ctx.ch4.enabled ? 0x08 : 0);
 }
 
-function power_off_apu(): void {
-  const ch1_len = ctx.ch1.length.counter;
-  const ch2_len = ctx.ch2.length.counter;
-  const ch3_len = ctx.ch3.length.counter;
-  const ch4_len = ctx.ch4.length.counter;
-
+function clear_channel_registers_and_runtime_state(): void {
   ctx.ch1 = make_pulse_channel();
   ctx.ch2 = make_pulse_channel();
   ctx.ch3 = make_wave_channel();
   ctx.ch4 = make_noise_channel();
 
-  ctx.ch1.length.counter = ch1_len;
-  ctx.ch2.length.counter = ch2_len;
-  ctx.ch3.length.counter = ch3_len;
-  ctx.ch4.length.counter = ch4_len;
+  ctx.ch1.enabled = false;
+  ctx.ch2.enabled = false;
+  ctx.ch3.enabled = false;
+  ctx.ch4.enabled = false;
+
+  ctx.ch1.dac_enabled = false;
+  ctx.ch2.dac_enabled = false;
+  ctx.ch3.dac_enabled = false;
+  ctx.ch4.dac_enabled = false;
+
+  ctx.ch1.length.counter = 0;
+  ctx.ch2.length.counter = 0;
+  ctx.ch3.length.counter = 0;
+  ctx.ch4.length.counter = 0;
+
+  ctx.ch1.length.enabled = false;
+  ctx.ch2.length.enabled = false;
+  ctx.ch3.length.enabled = false;
+  ctx.ch4.length.enabled = false;
+
+  ctx.ch1.nrx0 = 0;
+  ctx.ch1.nrx1 = 0;
+  ctx.ch1.nrx2 = 0;
+  ctx.ch1.nrx3 = 0;
+  ctx.ch1.nrx4 = 0;
+
+  ctx.ch2.nrx1 = 0;
+  ctx.ch2.nrx2 = 0;
+  ctx.ch2.nrx3 = 0;
+  ctx.ch2.nrx4 = 0;
+
+  ctx.ch3.nr30 = 0;
+  ctx.ch3.nr31 = 0;
+  ctx.ch3.nr32 = 0;
+  ctx.ch3.nr33 = 0;
+  ctx.ch3.nr34 = 0;
+
+  ctx.ch4.nr41 = 0;
+  ctx.ch4.nr42 = 0;
+  ctx.ch4.nr43 = 0;
+  ctx.ch4.nr44 = 0;
+}
+
+function power_off_apu(): void {
+  clear_channel_registers_and_runtime_state();
 
   ctx.nr50 = 0;
   ctx.nr51 = 0;
@@ -205,24 +242,55 @@ function power_off_apu(): void {
 
   ctx.hpf_cap_l = 0;
   ctx.hpf_cap_r = 0;
+
+  update_nr52();
 }
 
 function power_on_apu(): void {
   ctx.enabled = true;
+
   ctx.frame_seq_step = 7;
 
   ctx.ch1.duty_pos = 0;
   ctx.ch2.duty_pos = 0;
   ctx.ch3.wave_pos = 0;
+
+  update_nr52();
+}
+
+function write_length_while_powered_off(address: number, value: number): boolean {
+  switch (address) {
+    case NR11:
+      ctx.ch1.nrx1 = value;
+      ctx.ch1.duty = (value >> 6) & 0x03;
+      ctx.ch1.length.counter = 64 - (value & 0x3f);
+      return true;
+
+    case NR21:
+      ctx.ch2.nrx1 = value;
+      ctx.ch2.duty = (value >> 6) & 0x03;
+      ctx.ch2.length.counter = 64 - (value & 0x3f);
+      return true;
+
+    case NR31:
+      ctx.ch3.nr31 = value;
+      ctx.ch3.length.counter = 256 - value;
+      return true;
+
+    case NR41:
+      ctx.ch4.nr41 = value;
+      ctx.ch4.length.counter = 64 - (value & 0x3f);
+      return true;
+
+    default:
+      return false;
+  }
 }
 
 export function audio_init(options?: audio_options): void {
   ctx.enabled = false;
 
-  ctx.ch1 = make_pulse_channel();
-  ctx.ch2 = make_pulse_channel();
-  ctx.ch3 = make_wave_channel();
-  ctx.ch4 = make_noise_channel();
+  clear_channel_registers_and_runtime_state();
 
   ctx.nr50 = 0;
   ctx.nr51 = 0;
@@ -378,12 +446,14 @@ export function audio_write(address: number, value: number): void {
   value &= 0xff;
 
   if (address === NR52) {
-    const turning_on = (value & 0x80) !== 0;
+    const enable_requested = (value & 0x80) !== 0;
 
-    if (!turning_on && ctx.enabled) {
+    if (enable_requested) {
+      if (!ctx.enabled) {
+        power_on_apu();
+      }
+    } else if (ctx.enabled) {
       power_off_apu();
-    } else if (turning_on && !ctx.enabled) {
-      power_on_apu();
     }
 
     update_nr52();
@@ -396,26 +466,8 @@ export function audio_write(address: number, value: number): void {
   }
 
   if (!ctx.enabled) {
-    switch (address) {
-      case NR11:
-        ctx.ch1.length.counter = 64 - (value & 0x3f);
-        return;
-
-      case NR21:
-        ctx.ch2.length.counter = 64 - (value & 0x3f);
-        return;
-
-      case NR31:
-        ctx.ch3.length.counter = 256 - value;
-        return;
-
-      case NR41:
-        ctx.ch4.length.counter = 64 - (value & 0x3f);
-        return;
-
-      default:
-        return;
-    }
+    write_length_while_powered_off(address, value);
+    return;
   }
 
   switch (address) {
@@ -427,11 +479,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch1.sweep_negate = (value & 0x08) !== 0;
       ctx.ch1.sweep_shift = value & 0x07;
 
-      if (
-        old_negate &&
-        !ctx.ch1.sweep_negate &&
-        ctx.ch1.sweep_negate_used
-      ) {
+      if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
         ctx.ch1.enabled = false;
       }
 
