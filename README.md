@@ -21,10 +21,18 @@ pnpx tsx ./src/lib/main.ts ./roms/tetris_world.gb
 - [x] emulation
 - [x] ui integration
 - [ ] audio
-  - [ ] apu
-  - [ ] wave
-  - [ ] noise
-  - [ ] pulse
+  - [ ] 01-registers.gb
+  - [x] 02-len ctr.gb
+  - [ ] 03-trigger.gb
+  - [x] 04-sweep.gb
+  - [x] 05-sweep details.gb
+  - [x] 06-overflow on trigger.gb
+  - [x] 07-len sweep period sync.gb
+  - [ ] 08-len ctr during power.gb
+  - [ ] 09-wave read while on.gb
+  - [ ] 10-wave trigger while on.gb
+  - [ ] 11-regs after power.gb
+  - [ ] 12-wave write while on.gb
 
 References:
 https://gbdev.io/pandocs/
