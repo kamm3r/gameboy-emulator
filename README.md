@@ -21,7 +21,7 @@ pnpx tsx ./src/lib/main.ts ./roms/tetris_world.gb
 - [x] emulation
 - [x] ui integration
 - [ ] audio
-  - [ ] 01-registers.gb
+  - [x] 01-registers.gb
   - [x] 02-len ctr.gb
   - [ ] 03-trigger.gb
   - [x] 04-sweep.gb

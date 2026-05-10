@@ -53,46 +53,11 @@ import {
   wave_ram_read,
   wave_ram_write,
 } from "./wave";
+import { length_counter_handle_nrx4 } from "./length-counter";
 
 function next_step_clocks_length(): boolean {
   const next = (ctx.frame_seq_step + 1) & 7;
   return next === 0 || next === 2 || next === 4 || next === 6;
-}
-
-function handle_length_nrx4(
-  lc: length_counter,
-  ch_enabled: boolean,
-  old_len_en: boolean,
-  new_len_en: boolean,
-  trigger: boolean,
-  max_length: number,
-  do_trigger: () => boolean,
-): boolean {
-  const next_clocks_length = next_step_clocks_length();
-
-  if (!old_len_en && new_len_en && !next_clocks_length && lc.counter > 0) {
-    lc.counter--;
-
-    if (lc.counter === 0 && !trigger) {
-      ch_enabled = false;
-    }
-  }
-
-  lc.enabled = new_len_en;
-
-  if (!trigger) {
-    return ch_enabled;
-  }
-
-  if (lc.counter === 0) {
-    lc.counter = max_length;
-
-    if (new_len_en && !next_clocks_length) {
-      lc.counter--;
-    }
-  }
-
-  return do_trigger();
 }
 
 function write_nrx4_pulse(
@@ -104,13 +69,14 @@ function write_nrx4_pulse(
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  ch.enabled = handle_length_nrx4(
+  ch.enabled = length_counter_handle_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
     new_len_en,
     trigger,
     64,
+    next_step_clocks_length(),
     () => {
       trigger_pulse(ch, with_sweep);
       return ch.enabled;
@@ -124,13 +90,14 @@ function write_nrx4_wave(value: number): void {
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  ch.enabled = handle_length_nrx4(
+  ch.enabled = length_counter_handle_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
     new_len_en,
     trigger,
     256,
+    next_step_clocks_length(),
     () => {
       trigger_wave();
       return ch.enabled;
@@ -144,13 +111,14 @@ function write_nrx4_noise(value: number): void {
   const new_len_en = (value & 0x40) !== 0;
   const trigger = (value & 0x80) !== 0;
 
-  ch.enabled = handle_length_nrx4(
+  ch.enabled = length_counter_handle_nrx4(
     ch.length,
     ch.enabled,
     old_len_en,
     new_len_en,
     trigger,
     64,
+    next_step_clocks_length(),
     () => {
       trigger_noise();
       return ch.enabled;
@@ -261,24 +229,18 @@ function power_on_apu(): void {
 function write_length_while_powered_off(address: number, value: number): boolean {
   switch (address) {
     case NR11:
-      ctx.ch1.nrx1 = value;
-      ctx.ch1.duty = (value >> 6) & 0x03;
       ctx.ch1.length.counter = 64 - (value & 0x3f);
       return true;
 
     case NR21:
-      ctx.ch2.nrx1 = value;
-      ctx.ch2.duty = (value >> 6) & 0x03;
       ctx.ch2.length.counter = 64 - (value & 0x3f);
       return true;
 
     case NR31:
-      ctx.ch3.nr31 = value;
       ctx.ch3.length.counter = 256 - value;
       return true;
 
     case NR41:
-      ctx.ch4.nr41 = value;
       ctx.ch4.length.counter = 64 - (value & 0x3f);
       return true;
 

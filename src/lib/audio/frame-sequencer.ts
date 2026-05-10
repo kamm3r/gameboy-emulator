@@ -1,14 +1,9 @@
+import { length_counter_step } from "./length-counter";
 import { step_sweep } from "./pulse";
 import { ctx, type envelope, type length_counter } from "./state";
 
 function step_length(lc: length_counter, ch: { enabled: boolean }): void {
-  if (!lc.enabled || lc.counter === 0) {
-    return;
-  }
-
-  lc.counter--;
-
-  if (lc.counter === 0) {
+  if (length_counter_step(lc)) {
     ch.enabled = false;
   }
 }
