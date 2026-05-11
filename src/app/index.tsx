@@ -2,6 +2,8 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { EmulatorView } from "@/components/emulator_view";
 import { emu_init, emu_load_rom, emu_start } from "@/lib/emu";
+import { Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -35,15 +37,18 @@ function Home() {
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="mb-8 flex items-baseline justify-between gap-4">
           <h1 className="text-xl font-medium">gameboy</h1>
-          <label className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-100">
-            load rom
-            <input
-              type="file"
-              accept=".gb,.gbc"
-              className="hidden"
-              onChange={on_file_change}
-            />
-          </label>
+          <Button asChild variant="secondary" size="sm">
+            <label className="cursor-pointer">
+              <Upload className="mr-2 h-4 w-4" />
+              load rom
+              <input
+                type="file"
+                accept=".gb,.gbc"
+                className="hidden"
+                onChange={on_file_change}
+              />
+            </label>
+          </Button>
         </div>
 
         <EmulatorView rom_name={rom_name} />

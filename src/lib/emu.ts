@@ -13,6 +13,7 @@ export type emu_context = {
   die: boolean;
   ticks: number;
   current_frame: number;
+  fps: number;
   rom_loaded: boolean;
   rom_name: string | null;
 };
@@ -25,6 +26,7 @@ const ctx: emu_context = {
   die: false,
   ticks: 0,
   current_frame: 0,
+  fps: 0,
   rom_loaded: false,
   rom_name: null,
 };
@@ -34,6 +36,8 @@ const listeners = new Set<emu_listener>();
 let initialized = false;
 let raf_handle: number | null = null;
 let timeout_handle: ReturnType<typeof setTimeout> | null = null;
+let fps_frame_count = 0;
+let fps_last_time = 0;
 
 let ctx_snapshot: Readonly<emu_context> = Object.freeze({ ...ctx });
 
@@ -44,6 +48,7 @@ const server_snapshot: Readonly<emu_context> = Object.freeze({
   die: false,
   ticks: 0,
   current_frame: 0,
+  fps: 0,
   rom_loaded: false,
   rom_name: null,
 });
@@ -53,6 +58,26 @@ let audio_pump_fn: (() => void) | null = null;
 
 export function emu_set_audio_pump(fn: (() => void) | null): void {
   audio_pump_fn = fn;
+}
+
+function reset_fps(): void {
+  fps_frame_count = 0;
+  fps_last_time = get_now();
+  ctx.fps = 0;
+}
+function update_fps(): void {
+  fps_frame_count++;
+
+  const now = get_now();
+  const elapsed = now - fps_last_time;
+
+  if (elapsed < 1000) {
+    return;
+  }
+
+  ctx.fps = Math.round((fps_frame_count * 1000) / elapsed);
+  fps_frame_count = 0;
+  fps_last_time = now;
 }
 
 function get_now(): number {
@@ -153,6 +178,8 @@ function run_loop(): void {
   // Run one Game Boy frame
   run_one_frame();
 
+  update_fps();
+
   // Pump audio immediately
   audio_pump_fn?.();
 
@@ -203,9 +230,11 @@ export function emu_init(): void {
   ctx.die = false;
   ctx.ticks = 0;
   ctx.current_frame = 0;
+  ctx.fps = 0;
   ctx.rom_loaded = false;
   ctx.rom_name = null;
 
+  reset_fps();
   emit_update();
 }
 
@@ -240,6 +269,7 @@ export function emu_start(): void {
   ctx.paused = false;
   ctx.current_frame = ppu_get_context().current_frame;
 
+  reset_fps();
   emit_update();
   schedule_loop();
 }
@@ -247,12 +277,14 @@ export function emu_start(): void {
 export function emu_pause(): void {
   if (!ctx.running) return;
   ctx.paused = true;
+  ctx.fps = 0;
   emit_update();
 }
 
 export function emu_resume(): void {
   if (!ctx.running) return;
   ctx.paused = false;
+  reset_fps();
   emit_update();
   schedule_loop();
 }
@@ -271,4 +303,8 @@ export function emu_get_frame(): number {
 
 export function emu_get_ticks(): number {
   return ctx.ticks;
+}
+
+export function emu_get_fps(): number {
+  return ctx.fps;
 }
