@@ -1,4 +1,4 @@
-import { bus_read, bus_write } from "@/lib/bus";
+import { bus_read, bus_write } from "@/lib/memory/bus";
 
 const DBG_MSG_SIZE = 1024;
 

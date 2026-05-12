@@ -1,5 +1,5 @@
 import { audio_on_div_falling_edge } from "@/lib/audio/apu";
-import { cpu_request_interrupt } from "@/lib/cpu";
+import { cpu_request_interrupt } from "@/lib/cpu/cpu";
 
 export const IT_TIMER = 0x04;
 

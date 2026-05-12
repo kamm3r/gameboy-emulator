@@ -1,8 +1,12 @@
-import { cpu_init, cpu_step } from "@/lib/cpu";
+import { cpu_init, cpu_step } from "@/lib/cpu/cpu";
 import { cart_load } from "@/lib/cart";
-import { dma_tick } from "@/lib/dma";
-import { ppu_get_context, ppu_init } from "@/lib/ppu";
-import { ppu_tick, ppu_sm_init } from "@/lib/ppu_sm";
+import { dma_tick } from "@/lib/memory/dma";
+import {
+  ppu_get_context,
+  ppu_init,
+  ppu_update_dirty_tiles,
+} from "@/lib/ppu/ppu";
+import { ppu_tick, ppu_sm_init } from "@/lib/ppu/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
 import { audio_init, audio_tick } from "./audio/apu";
 import { audio_get_queued_sample_count } from "./audio/queue";
@@ -107,9 +111,15 @@ function cancel_loop(): void {
 }
 
 function schedule_loop(): void {
-  if (raf_handle !== null || !ctx.running || ctx.die) {
+  if (
+    raf_handle !== null ||
+    timeout_handle !== null ||
+    !ctx.running ||
+    ctx.die
+  ) {
     return;
   }
+
   raf_handle = requestAnimationFrame(run_loop);
 }
 
@@ -131,10 +141,12 @@ export function emu_cycles(cpu_cycles: number): void {
 }
 
 function run_one_frame(): void {
+  ppu_update_dirty_tiles();
+
   const start_frame = ppu_get_context().current_frame;
 
-  // Run until PPU frame advances or safety limit
   let safety = 0;
+
   while (
     ctx.running &&
     !ctx.paused &&
@@ -142,14 +154,12 @@ function run_one_frame(): void {
     safety < T_CYCLES_PER_FRAME
   ) {
     const ok = cpu_step();
+
     if (!ok) {
       console.log("cpu stopped");
       ctx.running = false;
       return;
     }
-
-    // If cpu_step doesn't tick peripherals, uncomment this:
-    // emu_cycles(1);
 
     safety++;
 

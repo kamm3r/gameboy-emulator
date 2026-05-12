@@ -1,8 +1,8 @@
-import { bus_read } from "@/lib/bus";
+import { bus_read } from "@/lib/memory/bus";
 import { emu_get_context } from "@/lib/emu";
-import { gamepad_get_state } from "@/lib/gamepad";
+import { gamepad_get_state } from "@/lib/input/gamepad";
 import { SCREEN_HEIGHT, SCREEN_WIDTH, XRES, YRES } from "@/lib/common";
-import { ppu_get_context } from "@/lib/ppu";
+import { ppu_get_context } from "@/lib/ppu/ppu";
 
 type ui_context = {
   mainCanvas: HTMLCanvasElement | null;

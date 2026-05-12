@@ -1,7 +1,7 @@
-import { in_type, RegType, type InType } from "@/lib/instructions";
-import { type cpu_context } from "@/lib/cpu";
-import { bus_read, bus_write, bus_write16 } from "@/lib/bus";
-import { cpu_read_register, cpu_read_register8, cpu_set_register, cpu_set_register8 } from "@/lib/cpu_util";
+import { in_type, RegType, type InType } from "@/lib/cpu/instructions";
+import { type cpu_context } from "@/lib/cpu/cpu";
+import { bus_read, bus_write, bus_write16 } from "@/lib/memory/bus";
+import { cpu_read_register, cpu_read_register8, cpu_set_register, cpu_set_register8 } from "@/lib/cpu/cpu_util";
 import { stack_pop, stack_push, stack_push16 } from "@/lib/stack";
 import { emu_cycles } from "@/lib/emu";
 

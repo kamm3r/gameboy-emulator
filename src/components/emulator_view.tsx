@@ -8,7 +8,7 @@ import {
   emu_stop,
 } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
-import { gamepad_button, gamepad_set_button } from "@/lib/gamepad";
+import { gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
 import { useEmu } from "@/hooks/use_emu";
 import { useEmulatorAudio } from "@/hooks/use_emulator_audio";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import {
   format_key_code,
   GAMEPAD_BUTTONS,
   get_key_for_button,
-} from "@/lib/keybinds";
+} from "@/lib/input/keybinds";
 
 type EmulatorViewProps = {
   rom_name: string;

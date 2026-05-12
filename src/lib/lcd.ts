@@ -1,4 +1,4 @@
-import { dma_start } from "@/lib/dma";
+import { dma_start } from "@/lib/memory/dma";
 
 export type lcd_context = {
   lcdc: number;
@@ -79,11 +79,9 @@ export function lcd_init(): void {
   ctx.win_y = 0;
   ctx.win_x = 0;
 
-  for (let i = 0; i < 4; i++) {
-    ctx.bg_colors[i] = colorsDefault[i];
-    ctx.sp1_colors[i] = colorsDefault[i];
-    ctx.sp2_colors[i] = colorsDefault[i];
-  }
+  update_palette(ctx.bg_palette, 0);
+  update_palette(ctx.obj_palette[0], 1);
+  update_palette(ctx.obj_palette[1], 2);
 
   update_lyc_flag();
 }
@@ -128,9 +126,6 @@ export function lcd_read(address: number): number {
     case 0xff4b:
       return ctx.win_x;
     default:
-      console.log(
-        `UNSUPPORTED lcd_read(${address.toString(16).padStart(4, "0")})`,
-      );
       return 0xff;
   }
 }
@@ -153,7 +148,7 @@ export function lcd_write(address: number, value: number): void {
       ctx.scroll_x = value;
       break;
     case 0xff44:
-      break; // LY is read-only
+      break;
     case 0xff45:
       ctx.ly_compare = value;
       update_lyc_flag();
@@ -168,7 +163,7 @@ export function lcd_write(address: number, value: number): void {
       break;
     case 0xff48:
       ctx.obj_palette[0] = value;
-      update_palette(value & 0xfc, 1); 
+      update_palette(value, 1);
       break;
     case 0xff49:
       ctx.obj_palette[1] = value;
@@ -179,11 +174,6 @@ export function lcd_write(address: number, value: number): void {
       break;
     case 0xff4b:
       ctx.win_x = value;
-      break;
-    default:
-      console.log(
-        `UNSUPPORTED lcd_write(${address.toString(16).padStart(4, "0")})`,
-      );
       break;
   }
 }

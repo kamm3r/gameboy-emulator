@@ -1,5 +1,5 @@
-import { ppu_oam_write } from "@/lib/ppu";
-import { bus_read } from "@/lib/bus";
+import { ppu_oam_write } from "@/lib/ppu/ppu";
+import { bus_read } from "@/lib/memory/bus";
 
 type dma_context = {
   active: boolean;

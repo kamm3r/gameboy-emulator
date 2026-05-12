@@ -1,7 +1,7 @@
-import { bus_read } from "@/lib/bus";
+import { bus_read } from "@/lib/memory/bus";
 import { formatter } from "@/lib/common";
-import { type cpu_context } from "@/lib/cpu";
-import { cpu_read_register, cpu_set_register } from "@/lib/cpu_util";
+import { type cpu_context } from "@/lib/cpu/cpu";
+import { cpu_read_register, cpu_set_register } from "@/lib/cpu/cpu_util";
 import { emu_cycles } from "@/lib/emu";
 
 export function fetch_data(ctx: cpu_context): void {

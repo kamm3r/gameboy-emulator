@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Keyboard, RotateCcw } from "lucide-react";
-import type { gamepad_button } from "@/lib/gamepad";
+import type { gamepad_button } from "@/lib/input/gamepad";
 import {
   GAMEPAD_BUTTONS,
   format_key_code,
@@ -8,7 +8,7 @@ import {
   keybind_map,
   reset_keybinds,
   set_keybind_for_button,
-} from "@/lib/keybinds";
+} from "@/lib/input/keybinds";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,28 +26,24 @@ type KeybindSettingsProps = {
 };
 
 export function KeybindSettings({ keybinds, onChange }: KeybindSettingsProps) {
-  const [listening_for, set_listening_for] = useState<gamepad_button | null>(
-    null,
-  );
+  const [listening_for, set_listening_for] = useState<gamepad_button | "">("");
 
   useEffect(() => {
-    if (!listening_for) {
-      return;
-    }
+    if (!listening_for) return;
 
     function on_key_down(e: KeyboardEvent) {
       e.preventDefault();
       e.stopPropagation();
 
-      if (e.code === "Escape") {
-        set_listening_for(null);
+      if (e.code === "Escape" || !listening_for) {
+        set_listening_for("");
         return;
       }
 
       const next = set_keybind_for_button(keybinds, listening_for, e.code);
 
       onChange(next);
-      set_listening_for(null);
+      set_listening_for("");
     }
 
     window.addEventListener("keydown", on_key_down, { capture: true });
@@ -65,9 +61,7 @@ export function KeybindSettings({ keybinds, onChange }: KeybindSettingsProps) {
   return (
     <Dialog
       onOpenChange={(open) => {
-        if (!open) {
-          set_listening_for(null);
-        }
+        if (!open) set_listening_for("");
       }}
     >
       <DialogTrigger asChild>
@@ -99,7 +93,7 @@ export function KeybindSettings({ keybinds, onChange }: KeybindSettingsProps) {
 
                 <Button
                   type="button"
-                  variant={is_listening ? "default" : "outline"}
+                  variant={is_listening ? "outline" : "secondary"}
                   size="sm"
                   className="min-w-28 justify-center font-mono"
                   onClick={() => set_listening_for(button)}

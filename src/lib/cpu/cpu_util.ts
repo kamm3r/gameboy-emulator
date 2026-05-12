@@ -1,6 +1,6 @@
-import { bus_read, bus_write } from "@/lib/bus";
-import { type cpu_context } from "@/lib/cpu";
-import { type RegType } from "@/lib/instructions";
+import { bus_read, bus_write } from "@/lib/memory/bus";
+import { type cpu_context } from "@/lib/cpu/cpu";
+import { type RegType } from "@/lib/cpu/instructions";
 
 export function reverse(value: number): number {
   value &= 0xffff;

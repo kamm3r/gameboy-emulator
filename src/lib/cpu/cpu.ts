@@ -1,13 +1,13 @@
-import { bus_read } from "@/lib/bus";
+import { bus_read } from "@/lib/memory/bus";
 import { formatter } from "@/lib/common";
-import { fetch_data } from "@/lib/cpu_fetch";
-import { instruction_get_processor } from "@/lib/cpu_proc";
+import { fetch_data } from "@/lib/cpu/cpu_fetch";
+import { instruction_get_processor } from "@/lib/cpu/cpu_proc";
 import { cpu_handle_interrupts } from "@/lib/interrupts";
 import {
   type instruction,
   instruction_by_opcode,
   instruction_name,
-} from "@/lib/instructions";
+} from "@/lib/cpu/instructions";
 import { timer_get_context } from "@/lib/timer";
 import { dbg_update, dbg_print } from "@/lib/dbg";
 import { emu_cycles, emu_get_context } from "@/lib/emu";

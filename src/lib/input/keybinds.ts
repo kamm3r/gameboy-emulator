@@ -1,4 +1,4 @@
-import type { gamepad_button } from "@/lib/gamepad";
+import type { gamepad_button } from "./gamepad";
 
 export type keybind_map = Record<string, gamepad_button>;
 

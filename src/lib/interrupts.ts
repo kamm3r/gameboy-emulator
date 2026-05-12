@@ -1,4 +1,4 @@
-import { cpu_get_context } from "@/lib/cpu";
+import { cpu_get_context } from "@/lib/cpu/cpu";
 import { emu_cycles } from "@/lib/emu";
 import { stack_push16 } from "@/lib/stack";
 

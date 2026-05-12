@@ -1,5 +1,5 @@
-import { bus_read, bus_write } from "@/lib/bus";
-import { cpu_get_registers } from "@/lib/cpu";
+import { bus_read, bus_write } from "@/lib/memory/bus";
+import { cpu_get_registers } from "@/lib/cpu/cpu";
 
 export function stack_push(value: number): void {
   cpu_get_registers().SP--;

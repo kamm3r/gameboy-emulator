@@ -1,9 +1,9 @@
 import { cart_read, cart_write } from "@/lib/cart";
-import { cpu_ie_register, cpu_set_ie_register } from "@/lib/cpu";
-import { dma_transferring } from "@/lib/dma";
+import { cpu_ie_register, cpu_set_ie_register } from "@/lib/cpu/cpu";
+import { dma_transferring } from "@/lib/memory/dma";
 import { io_read, io_write } from "@/lib/io";
-import { ppu_oam_read, ppu_oam_write, ppu_vram_read, ppu_vram_write } from "@/lib/ppu";
-import { hram_read, hram_write, wram_read, wram_write } from "@/lib/ram";
+import { ppu_oam_read, ppu_oam_write, ppu_vram_read, ppu_vram_write } from "@/lib/ppu/ppu";
+import { hram_read, hram_write, wram_read, wram_write } from "@/lib/memory/ram";
 
 export function bus_read(address: number): number {
   address &= 0xffff;
