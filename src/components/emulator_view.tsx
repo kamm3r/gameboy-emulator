@@ -16,237 +16,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { useKeybinds } from "@/hooks/use_keybinds";
+import { KeybindSettings } from "./keybinds_settings";
+import {
+  format_key_code,
+  GAMEPAD_BUTTONS,
+  get_key_for_button,
+} from "@/lib/keybinds";
 
 type EmulatorViewProps = {
   rom_name: string;
 };
-
-const KEY_MAP: Record<string, gamepad_button> = {
-  ArrowUp: "up",
-  ArrowDown: "down",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-  KeyZ: "a",
-  KeyX: "b",
-  Enter: "start",
-  ShiftRight: "select",
-  ShiftLeft: "select",
-};
-
-export function EmulatorView({ rom_name }: EmulatorViewProps) {
-  useEmulatorAudio();
-
-  const emu = useEmu();
-
-  const canvas_ref = useRef<HTMLCanvasElement | null>(null);
-  const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
-
-  const [show_debug, set_show_debug] = useState(false);
-
-  useEffect(() => {
-    let lastTicks = emu_get_ticks();
-
-    const id = window.setInterval(() => {
-      const ticks = emu_get_ticks();
-      console.log("ticks/sec", ticks - lastTicks);
-      lastTicks = ticks;
-    }, 1000);
-
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvas_ref.current;
-    const debug_canvas = debug_canvas_ref.current;
-
-    if (!canvas) {
-      return;
-    }
-
-    ui_init(canvas, debug_canvas, 2);
-
-    return () => {
-      ui_destroy();
-    };
-  }, []);
-
-  useEffect(() => {
-    ui_update();
-  }, [emu.current_frame]);
-
-  useEffect(() => {
-    function on_key_down(e: KeyboardEvent) {
-      const btn = KEY_MAP[e.code];
-
-      if (!btn) {
-        return;
-      }
-
-      e.preventDefault();
-      gamepad_set_button(btn, true);
-    }
-
-    function on_key_up(e: KeyboardEvent) {
-      const btn = KEY_MAP[e.code];
-
-      if (!btn) {
-        return;
-      }
-
-      e.preventDefault();
-      gamepad_set_button(btn, false);
-    }
-
-    window.addEventListener("keydown", on_key_down);
-    window.addEventListener("keyup", on_key_up);
-
-    return () => {
-      window.removeEventListener("keydown", on_key_down);
-      window.removeEventListener("keyup", on_key_up);
-    };
-  }, []);
-
-  const has_rom = Boolean(rom_name);
-  const can_start = has_rom && !emu.running;
-  const can_pause = emu.running && !emu.paused;
-  const can_resume = emu.running && emu.paused;
-  const can_stop = emu.running;
-
-  const status = emu.running ? (emu.paused ? "paused" : "running") : "idle";
-
-  return (
-    <div className="flex flex-col gap-6">
-      <Card className="border-zinc-800 bg-zinc-950/70">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-          <div className="min-w-0 space-y-2">
-            <div className="flex min-w-0 items-center gap-2 font-mono text-sm">
-              <span className="shrink-0 text-zinc-500">rom</span>
-              <span className="truncate text-zinc-100">
-                {rom_name || "none"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 font-mono text-sm">
-              <span className="text-zinc-500">status</span>
-              <StatusBadge status={status} />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500">fps</span>
-              <span className="text-zinc-100">
-                {emu.running && !emu.paused ? `${emu.fps} fps` : "—"}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {can_start && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="start"
-                aria-label="start"
-                onClick={() => emu_start()}
-              >
-                <Play className="h-4 w-4" />
-              </Button>
-            )}
-
-            {can_pause && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="pause"
-                aria-label="pause"
-                onClick={() => emu_pause()}
-              >
-                <Pause className="h-4 w-4" />
-              </Button>
-            )}
-
-            {can_resume && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="resume"
-                aria-label="resume"
-                onClick={() => emu_resume()}
-              >
-                <Play className="h-4 w-4" />
-              </Button>
-            )}
-
-            {can_stop && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="stop"
-                aria-label="stop"
-                onClick={() => emu_stop()}
-              >
-                <Square className="h-4 w-4" />
-              </Button>
-            )}
-
-            <Separator
-              orientation="vertical"
-              className="mx-1 h-8 bg-zinc-800"
-            />
-
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-2">
-              <Bug className="h-4 w-4 text-zinc-500" />
-              <span className="hidden text-xs text-zinc-400 sm:inline">
-                debug
-              </span>
-              <Switch checked={show_debug} onCheckedChange={set_show_debug} />
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          <div
-            className={
-              show_debug
-                ? "grid items-start gap-8 lg:grid-cols-[auto_auto]"
-                : "flex flex-col"
-            }
-          >
-            <div className="flex flex-col gap-4">
-              <canvas
-                ref={canvas_ref}
-                className="block rounded-md bg-black [image-rendering:pixelated]"
-                style={{
-                  width: 480,
-                  aspectRatio: "160 / 144",
-                }}
-              />
-
-              <GamepadControls />
-            </div>
-
-            <div className={show_debug ? "block" : "hidden"}>
-              <div className="mb-2 flex items-center gap-2 font-mono text-xs text-zinc-500">
-                <Bug className="h-3.5 w-3.5" />
-                render debug
-              </div>
-
-              <canvas
-                ref={debug_canvas_ref}
-                className="block rounded-md bg-black [image-rendering:pixelated]"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <KeyboardHelp />
-    </div>
-  );
-}
 
 type StatusBadgeProps = {
   status: "idle" | "running" | "paused";
@@ -361,20 +141,212 @@ function GamepadControls() {
     </div>
   );
 }
+type KeyboardHelpProps = {
+  keybinds: Record<string, gamepad_button>;
+};
 
-function KeyboardHelp() {
+function KeyboardHelp({ keybinds }: KeyboardHelpProps) {
   return (
     <Card className="w-fit border-zinc-800 bg-zinc-950/70">
       <CardContent className="pt-6">
         <div className="font-mono text-xs leading-5 text-zinc-500">
           <div className="mb-1 text-zinc-400">keyboard</div>
-          <div>arrows — d-pad</div>
-          <div>z — a</div>
-          <div>x — b</div>
-          <div>enter — start</div>
-          <div>shift — select</div>
+
+          {GAMEPAD_BUTTONS.map(({ button, label }) => {
+            const key_code = get_key_for_button(keybinds, button);
+
+            return (
+              <div key={button}>
+                {label} — {format_key_code(key_code)}
+              </div>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+export function EmulatorView({ rom_name }: EmulatorViewProps) {
+  useEmulatorAudio();
+
+  const emu = useEmu();
+  const { keybinds, set_keybinds } = useKeybinds();
+
+  const canvas_ref = useRef<HTMLCanvasElement | null>(null);
+  const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
+
+  const [show_debug, set_show_debug] = useState(false);
+
+  useEffect(() => {
+    let lastTicks = emu_get_ticks();
+
+    const id = window.setInterval(() => {
+      const ticks = emu_get_ticks();
+      console.log("ticks/sec", ticks - lastTicks);
+      lastTicks = ticks;
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvas_ref.current;
+    const debug_canvas = debug_canvas_ref.current;
+
+    if (!canvas) {
+      return;
+    }
+
+    ui_init(canvas, debug_canvas, 2);
+
+    return () => {
+      ui_destroy();
+    };
+  }, []);
+
+  useEffect(() => {
+    ui_update();
+  }, [emu.current_frame]);
+
+  const has_rom = Boolean(rom_name);
+  const can_start = has_rom && !emu.running;
+  const can_pause = emu.running && !emu.paused;
+  const can_resume = emu.running && emu.paused;
+  const can_stop = emu.running;
+
+  const status = emu.running ? (emu.paused ? "paused" : "running") : "idle";
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card className="border-zinc-800 bg-zinc-950/70">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+          <div className="min-w-0 space-y-2">
+            <div className="flex min-w-0 items-center gap-2 font-mono text-sm">
+              <span className="shrink-0 text-zinc-500">rom</span>
+              <span className="truncate text-zinc-100">
+                {rom_name || "none"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 font-mono text-sm">
+              <span className="text-zinc-500">status</span>
+              <StatusBadge status={status} />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500">fps</span>
+              <span className="text-zinc-100">
+                {emu.running && !emu.paused ? `${emu.fps} fps` : "—"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {can_start && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                title="start"
+                aria-label="start"
+                onClick={() => emu_start()}
+              >
+                <Play className="h-4 w-4" />
+              </Button>
+            )}
+
+            {can_pause && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                title="pause"
+                aria-label="pause"
+                onClick={() => emu_pause()}
+              >
+                <Pause className="h-4 w-4" />
+              </Button>
+            )}
+
+            {can_resume && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                title="resume"
+                aria-label="resume"
+                onClick={() => emu_resume()}
+              >
+                <Play className="h-4 w-4" />
+              </Button>
+            )}
+
+            {can_stop && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                title="stop"
+                aria-label="stop"
+                onClick={() => emu_stop()}
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            )}
+
+            <Separator
+              orientation="vertical"
+              className="mx-1 h-8 bg-zinc-800"
+            />
+            <KeybindSettings keybinds={keybinds} onChange={set_keybinds} />
+            <div className="flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-2">
+              <Bug className="h-4 w-4 text-zinc-500" />
+              <span className="hidden text-xs text-zinc-400 sm:inline">
+                debug
+              </span>
+              <Switch checked={show_debug} onCheckedChange={set_show_debug} />
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <div
+            className={
+              show_debug
+                ? "grid items-start gap-8 lg:grid-cols-[auto_auto]"
+                : "flex flex-col"
+            }
+          >
+            <div className="flex flex-col gap-4">
+              <canvas
+                ref={canvas_ref}
+                className="block rounded-md bg-black [image-rendering:pixelated]"
+                style={{
+                  width: 480,
+                  aspectRatio: "160 / 144",
+                }}
+              />
+
+              <GamepadControls />
+            </div>
+
+            <div className={show_debug ? "block" : "hidden"}>
+              <div className="mb-2 flex items-center gap-2 font-mono text-xs text-zinc-500">
+                <Bug className="h-3.5 w-3.5" />
+                render debug
+              </div>
+
+              <canvas
+                ref={debug_canvas_ref}
+                className="block rounded-md bg-black [image-rendering:pixelated]"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <KeyboardHelp keybinds={keybinds} />
+    </div>
   );
 }
