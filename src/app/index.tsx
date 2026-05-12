@@ -36,7 +36,7 @@ function Home() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="mb-8 flex items-baseline justify-between gap-4">
-          <h1 className="text-xl font-medium">gameboy</h1>
+          <h1 className="text-xl font-medium">Gēmubōi</h1>
           <Button asChild variant="secondary" size="sm">
             <label className="cursor-pointer">
               <Upload className="mr-2 h-4 w-4" />

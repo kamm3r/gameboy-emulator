@@ -58,8 +58,7 @@ function get_sprite_pixel(
   const high = vram[row_addr + 1];
   const bit = 7 - px;
 
-  const color_id =
-    ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
+  const color_id = ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
 
   if (color_id === 0) {
     return null;
@@ -74,7 +73,11 @@ function get_sprite_pixel(
   };
 }
 
-function find_top_sprite_pixel(
+let found_sprite_color_id = 0;
+let found_sprite_color = 0;
+let found_sprite_bg_priority = false;
+
+function find_top_sprite_pixel_fast(
   sprites: oam_entry[],
   sprite_count: number,
   screen_x: number,
@@ -83,31 +86,67 @@ function find_top_sprite_pixel(
   vram: Uint8Array,
   sp1_colors: [number, number, number, number],
   sp2_colors: [number, number, number, number],
-): sprite_pixel | null {
+): boolean {
   for (let i = 0; i < sprite_count; i++) {
     const sprite = sprites[i];
+
     const sprite_x = sprite.x - 8;
 
     if (screen_x < sprite_x || screen_x >= sprite_x + 8) {
       continue;
     }
 
-    const pixel = get_sprite_pixel(
-      sprite,
-      screen_x,
-      screen_y,
-      sprite_height,
-      vram,
-      sp1_colors,
-      sp2_colors,
-    );
+    const sprite_y = sprite.y - 16;
 
-    if (pixel) {
-      return pixel;
+    let px = screen_x - sprite_x;
+    let py = screen_y - sprite_y;
+
+    if (py < 0 || py >= sprite_height) {
+      continue;
     }
+
+    const attr = sprite.attributes;
+
+    if ((attr & 0x20) !== 0) {
+      px = 7 - px;
+    }
+
+    if ((attr & 0x40) !== 0) {
+      py = sprite_height - 1 - py;
+    }
+
+    let tile = sprite.tile;
+
+    if (sprite_height === 16) {
+      tile &= 0xfe;
+
+      if (py >= 8) {
+        tile++;
+        py -= 8;
+      }
+    }
+
+    const row_addr = (tile << 4) + py * 2;
+    const low = vram[row_addr];
+    const high = vram[row_addr + 1];
+    const bit = 7 - px;
+
+    const color_id = ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
+
+    if (color_id === 0) {
+      continue;
+    }
+
+    const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
+
+    found_sprite_color_id = color_id;
+    found_sprite_color = palette[color_id];
+    found_sprite_bg_priority = (attr & 0x80) !== 0;
+
+    return true;
   }
 
-  return null;
+  return false;
 }
 
 export function render_scanline(): void {
@@ -197,7 +236,7 @@ export function render_scanline(): void {
     }
 
     if (obj_enabled && line_sprite_count > 0) {
-      const sprite = find_top_sprite_pixel(
+      const has_sprite = find_top_sprite_pixel_fast(
         line_sprites,
         line_sprite_count,
         x,
@@ -208,8 +247,8 @@ export function render_scanline(): void {
         sp2_colors,
       );
 
-      if (sprite && (!sprite.bg_priority || bg_color_id === 0)) {
-        final_color = sprite.color;
+      if (has_sprite && (!found_sprite_bg_priority || bg_color_id === 0)) {
+        final_color = found_sprite_color;
       }
     }
 
