@@ -198,6 +198,9 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
       return;
     }
 
+    debug_canvas!.width = 128;
+    debug_canvas!.height = 192;
+
     ui_init(canvas, debug_canvas, 2);
 
     return () => {
@@ -343,13 +346,15 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
                 render debug
               </div>
 
-              <canvas
-                ref={debug_canvas_ref}
-                className="block rounded-md bg-black [image-rendering:pixelated]"
-                style={{
-                  width: 288,
-                }}
-              />
+              <div className="h-[432px] overflow-hidden rounded-md bg-black">
+                <canvas
+                  ref={debug_canvas_ref}
+                  className="block [image-rendering:pixelated]"
+                  style={{
+                    width: 288,
+                  }}
+                />
+              </div>
             </div>
           </div>
         </CardContent>
