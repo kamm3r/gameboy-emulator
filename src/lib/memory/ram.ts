@@ -36,3 +36,19 @@ export function hram_write(address: number, value: number): void {
 
   ctx.hram[address] = value;
 }
+
+export function wram_read_offset(offset: number): number {
+  return ctx.wram[offset & 0x1fff];
+}
+
+export function wram_write_offset(offset: number, value: number): void {
+  ctx.wram[offset & 0x1fff] = value & 0xff;
+}
+
+export function hram_read_offset(offset: number): number {
+  return ctx.hram[offset & 0x7f];
+}
+
+export function hram_write_offset(offset: number, value: number): void {
+  ctx.hram[offset & 0x7f] = value & 0xff;
+}

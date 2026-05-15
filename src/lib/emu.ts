@@ -1,12 +1,12 @@
 import { cpu_init, cpu_step } from "@/lib/cpu/cpu";
 import { cart_load } from "@/lib/cart";
-import { dma_tick } from "@/lib/memory/dma";
+import { dma_tick, dma_tick_batch } from "@/lib/memory/dma";
 import {
   ppu_get_context,
   ppu_init,
   ppu_update_dirty_tiles,
 } from "@/lib/ppu/ppu";
-import { ppu_tick, ppu_sm_init } from "@/lib/ppu/ppu_sm";
+import { ppu_tick, ppu_sm_init, ppu_tick_batch } from "@/lib/ppu/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
 import { audio_init, audio_tick } from "./audio/apu";
 import { audio_get_queued_sample_count } from "./audio/queue";
@@ -123,36 +123,33 @@ function schedule_loop(): void {
   raf_handle = requestAnimationFrame(run_loop);
 }
 
-// Game Boy: ~4194304 Hz / 59.7 FPS = ~70224 M-cycles per frame
+export function emu_cycles(m_cycles: number): void {
+  const t_cycles = m_cycles << 2;
+
+  ctx.ticks += t_cycles;
+
+  ppu_tick_batch(t_cycles);
+
+  for (let i = 0; i < t_cycles; i++) {
+    timer_tick();
+    audio_tick();
+  }
+
+  dma_tick_batch(m_cycles);
+}
+
 const T_CYCLES_PER_FRAME = 70224;
 const GB_FRAME_RATE = 4_194_304 / T_CYCLES_PER_FRAME;
 const TARGET_FRAME_MS = 1000 / GB_FRAME_RATE;
-
-export function emu_cycles(cpu_cycles: number): void {
-  for (let i = 0; i < cpu_cycles; i++) {
-    for (let n = 0; n < 4; n++) {
-      ctx.ticks++;
-      timer_tick();
-      ppu_tick();
-      audio_tick();
-    }
-    dma_tick();
-  }
-}
 
 function run_one_frame(): void {
   ppu_update_dirty_tiles();
 
   const start_frame = ppu_get_context().current_frame;
+  const start_ticks = ctx.ticks;
+  const max_ticks = start_ticks + T_CYCLES_PER_FRAME + 456;
 
-  let safety = 0;
-
-  while (
-    ctx.running &&
-    !ctx.paused &&
-    !ctx.die &&
-    safety < T_CYCLES_PER_FRAME
-  ) {
+  while (ctx.running && !ctx.paused && !ctx.die && ctx.ticks < max_ticks) {
     const ok = cpu_step();
 
     if (!ok) {
@@ -160,8 +157,6 @@ function run_one_frame(): void {
       ctx.running = false;
       return;
     }
-
-    safety++;
 
     if (ppu_get_context().current_frame !== start_frame) {
       break;

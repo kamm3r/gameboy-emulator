@@ -24,6 +24,9 @@ export type ppu_context = {
 
   line_sprites: oam_entry[];
   line_sprite_count: number;
+  sprite_line_color: Uint32Array;
+  sprite_line_color_id: Uint8Array;
+  sprite_line_priority: Uint8Array;
 
   window_line: number;
   line_rendered: boolean;
@@ -49,6 +52,9 @@ const ctx: ppu_context = {
 
   line_sprites: new Array<oam_entry>(10),
   line_sprite_count: 0,
+  sprite_line_color: new Uint32Array(XRES),
+  sprite_line_color_id: new Uint8Array(XRES),
+  sprite_line_priority: new Uint8Array(XRES),
 
   window_line: 0,
   line_rendered: false,

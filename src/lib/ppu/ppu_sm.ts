@@ -19,6 +19,7 @@ export const MODE_XFER = 3;
 
 const OAM_TICKS = 80;
 const XFER_TICKS = 172;
+const XFER_END_TICKS = OAM_TICKS + XFER_TICKS;
 
 function stat_interrupt_enabled(source: number): boolean {
   return (lcd_get_context().lcds & (1 << (source + 3))) !== 0;
@@ -147,7 +148,7 @@ export function ppu_mode_xfer(): void {
     ppu.line_rendered = true;
   }
 
-  if (ppu.line_ticks >= OAM_TICKS + XFER_TICKS) {
+  if (ppu.line_ticks >= XFER_END_TICKS) {
     set_mode(MODE_HBLANK);
 
     if (stat_interrupt_enabled(SS_HBLANK)) {
@@ -211,17 +212,8 @@ export function ppu_mode_hblank(): void {
   ppu.line_ticks = 0;
 }
 
-export function ppu_tick(): void {
-  const lcd = lcd_get_context();
-
-  if ((lcd.lcdc & 0x80) === 0) {
-    return;
-  }
-
-  const ppu = ppu_get_context();
-  ppu.line_ticks++;
-
-  switch (lcd.lcds & 0x03) {
+function run_current_mode(): void {
+  switch (lcd_get_context().lcds & 0x03) {
     case MODE_OAM:
       ppu_mode_oam();
       break;
@@ -235,6 +227,55 @@ export function ppu_tick(): void {
       ppu_mode_hblank();
       break;
   }
+}
+
+function ticks_until_next_mode_boundary(): number {
+  const ppu = ppu_get_context();
+
+  switch (lcd_get_context().lcds & 0x03) {
+    case MODE_OAM:
+      return Math.max(1, OAM_TICKS - ppu.line_ticks);
+
+    case MODE_XFER:
+      return Math.max(1, XFER_END_TICKS - ppu.line_ticks);
+
+    case MODE_HBLANK:
+    case MODE_VBLANK:
+      return Math.max(1, TICKS_PER_LINE - ppu.line_ticks);
+
+    default:
+      return 1;
+  }
+}
+
+/**
+ * Fast PPU advancement.
+ *
+ * This keeps the old per-tick behavior logically intact, but skips directly to
+ * the next relevant mode boundary instead of calling ppu_tick() once per
+ * T-cycle.
+ */
+export function ppu_tick_batch(t_cycles: number): void {
+  const lcd = lcd_get_context();
+
+  if ((lcd.lcdc & 0x80) === 0) {
+    return;
+  }
+
+  const ppu = ppu_get_context();
+
+  while (t_cycles > 0) {
+    const step = Math.min(t_cycles, ticks_until_next_mode_boundary());
+
+    ppu.line_ticks += step;
+    t_cycles -= step;
+
+    run_current_mode();
+  }
+}
+
+export function ppu_tick(): void {
+  ppu_tick_batch(1);
 }
 
 export function ppu_sm_init(): void {

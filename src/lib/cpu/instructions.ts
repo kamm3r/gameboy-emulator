@@ -665,7 +665,7 @@ instructions[0xe8] = {
   reg_1: reg_type.RT_SP,
 };
 instructions[0xe9] = {
-  type: in_type.IN_JP,
+  type: in_type.IN_JPHL,
   mode: addr_mode.AM_R,
   reg_1: reg_type.RT_HL,
 };

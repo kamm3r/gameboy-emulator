@@ -7,72 +7,6 @@ import {
   ppu_resolve_bg_tile_index,
 } from "./ppu";
 
-type sprite_pixel = {
-  color_id: number;
-  color: number;
-  bg_priority: boolean;
-};
-
-function get_sprite_pixel(
-  sprite: oam_entry,
-  screen_x: number,
-  screen_y: number,
-  sprite_height: number,
-  vram: Uint8Array,
-  sp1_colors: [number, number, number, number],
-  sp2_colors: [number, number, number, number],
-): sprite_pixel | null {
-  const sprite_x = sprite.x - 8;
-  const sprite_y = sprite.y - 16;
-
-  let px = screen_x - sprite_x;
-  let py = screen_y - sprite_y;
-
-  if (px < 0 || px >= 8 || py < 0 || py >= sprite_height) {
-    return null;
-  }
-
-  const attr = sprite.attributes;
-
-  if ((attr & 0x20) !== 0) {
-    px = 7 - px;
-  }
-
-  if ((attr & 0x40) !== 0) {
-    py = sprite_height - 1 - py;
-  }
-
-  let tile = sprite.tile;
-
-  if (sprite_height === 16) {
-    tile &= 0xfe;
-
-    if (py >= 8) {
-      tile++;
-      py -= 8;
-    }
-  }
-
-  const row_addr = (tile << 4) + py * 2;
-  const low = vram[row_addr];
-  const high = vram[row_addr + 1];
-  const bit = 7 - px;
-
-  const color_id = ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
-
-  if (color_id === 0) {
-    return null;
-  }
-
-  const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
-
-  return {
-    color_id,
-    color: palette[color_id],
-    bg_priority: (attr & 0x80) !== 0,
-  };
-}
-
 let found_sprite_color_id = 0;
 let found_sprite_color = 0;
 let found_sprite_bg_priority = false;
@@ -148,6 +82,8 @@ function find_top_sprite_pixel_fast(
 
   return false;
 }
+
+
 
 export function render_scanline(): void {
   const lcd = lcd_get_context();
