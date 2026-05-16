@@ -18,7 +18,7 @@ export type lcd_context = {
   sp2_colors: [number, number, number, number];
 };
 
-const colorsDefault: [number, number, number, number] = [
+const COLORS_DEFAULT: [number, number, number, number] = [
   0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000,
 ];
 
@@ -34,35 +34,29 @@ const ctx: lcd_context = {
   obj_palette: [0xff, 0xff],
   win_y: 0,
   win_x: 0,
-  bg_colors: [...colorsDefault],
-  sp1_colors: [...colorsDefault],
-  sp2_colors: [...colorsDefault],
+  bg_colors: [...COLORS_DEFAULT],
+  sp1_colors: [...COLORS_DEFAULT],
+  sp2_colors: [...COLORS_DEFAULT],
 };
 
 function update_lyc_flag(): void {
-  if (ctx.ly === ctx.ly_compare) {
-    ctx.lcds |= 0x04;
-  } else {
-    ctx.lcds &= ~0x04;
-  }
+  ctx.lcds = ctx.ly === ctx.ly_compare ? ctx.lcds | 0x04 : ctx.lcds & ~0x04;
 }
 
-function update_palette(paletteData: number, pal: number): void {
-  let p_colors = ctx.bg_colors;
+function apply_palette(
+  paletteData: number,
+  colors: [number, number, number, number],
+): void {
+  colors[0] = COLORS_DEFAULT[paletteData & 0x03];
+  colors[1] = COLORS_DEFAULT[(paletteData >> 2) & 0x03];
+  colors[2] = COLORS_DEFAULT[(paletteData >> 4) & 0x03];
+  colors[3] = COLORS_DEFAULT[(paletteData >> 6) & 0x03];
+}
 
-  switch (pal) {
-    case 1:
-      p_colors = ctx.sp1_colors;
-      break;
-    case 2:
-      p_colors = ctx.sp2_colors;
-      break;
-  }
-
-  p_colors[0] = colorsDefault[paletteData & 0b11];
-  p_colors[1] = colorsDefault[(paletteData >> 2) & 0b11];
-  p_colors[2] = colorsDefault[(paletteData >> 4) & 0b11];
-  p_colors[3] = colorsDefault[(paletteData >> 6) & 0b11];
+function reset_colors(): void {
+  apply_palette(ctx.bg_palette, ctx.bg_colors);
+  apply_palette(ctx.obj_palette[0], ctx.sp1_colors);
+  apply_palette(ctx.obj_palette[1], ctx.sp2_colors);
 }
 
 export function lcd_init(): void {
@@ -79,10 +73,7 @@ export function lcd_init(): void {
   ctx.win_y = 0;
   ctx.win_x = 0;
 
-  update_palette(ctx.bg_palette, 0);
-  update_palette(ctx.obj_palette[0], 1);
-  update_palette(ctx.obj_palette[1], 2);
-
+  reset_colors();
   update_lyc_flag();
 }
 
@@ -103,75 +94,101 @@ export function lcd_read(address: number): number {
   switch (address & 0xffff) {
     case 0xff40:
       return ctx.lcdc;
+
     case 0xff41:
       return ctx.lcds | 0x80;
+
     case 0xff42:
       return ctx.scroll_y;
+
     case 0xff43:
       return ctx.scroll_x;
+
     case 0xff44:
       return ctx.ly;
+
     case 0xff45:
       return ctx.ly_compare;
+
     case 0xff46:
       return ctx.dma;
+
     case 0xff47:
       return ctx.bg_palette;
+
     case 0xff48:
       return ctx.obj_palette[0];
+
     case 0xff49:
       return ctx.obj_palette[1];
+
     case 0xff4a:
       return ctx.win_y;
+
     case 0xff4b:
       return ctx.win_x;
+
     default:
       return 0xff;
   }
 }
 
 export function lcd_write(address: number, value: number): void {
-  address &= 0xffff;
   value &= 0xff;
 
-  switch (address) {
+  switch (address & 0xffff) {
     case 0xff40:
       ctx.lcdc = value;
       break;
+
     case 0xff41:
+      // Bits 0-2 are read-only status bits.
+      // Bits 3-6 are writable STAT interrupt-enable bits.
+      // Bit 7 reads as 1.
       ctx.lcds = (ctx.lcds & 0x07) | (value & 0x78);
       break;
+
     case 0xff42:
       ctx.scroll_y = value;
       break;
+
     case 0xff43:
       ctx.scroll_x = value;
       break;
+
     case 0xff44:
+      // LY is read-only.
       break;
+
     case 0xff45:
       ctx.ly_compare = value;
       update_lyc_flag();
       break;
+
     case 0xff46:
       ctx.dma = value;
       dma_start(value);
       break;
+
     case 0xff47:
       ctx.bg_palette = value;
-      update_palette(value, 0);
+      apply_palette(value, ctx.bg_colors);
       break;
+
     case 0xff48:
       ctx.obj_palette[0] = value;
-      update_palette(value, 1);
+      apply_palette(value, ctx.sp1_colors);
       break;
+
     case 0xff49:
       ctx.obj_palette[1] = value;
-      update_palette(value, 2);
+      apply_palette(value, ctx.sp2_colors);
       break;
+
     case 0xff4a:
       ctx.win_y = value;
       break;
+
     case 0xff4b:
       ctx.win_x = value;
       break;

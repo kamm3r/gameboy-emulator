@@ -1,15 +1,15 @@
-import { cpu_init, cpu_step } from "@/lib/cpu/cpu";
+import { audio_init, audio_tick } from "./audio/apu";
+import { audio_get_queued_sample_count } from "./audio/queue";
 import { cart_load } from "@/lib/cart";
-import { dma_tick, dma_tick_batch } from "@/lib/memory/dma";
+import { cpu_init, cpu_step } from "@/lib/cpu/cpu";
+import { dma_tick_batch } from "@/lib/memory/dma";
 import {
   ppu_get_context,
   ppu_init,
   ppu_update_dirty_tiles,
 } from "@/lib/ppu/ppu";
-import { ppu_tick, ppu_sm_init, ppu_tick_batch } from "@/lib/ppu/ppu_sm";
+import { ppu_sm_init, ppu_tick_batch } from "@/lib/ppu/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
-import { audio_init, audio_tick } from "./audio/apu";
-import { audio_get_queued_sample_count } from "./audio/queue";
 
 export type emu_context = {
   paused: boolean;
@@ -64,11 +64,16 @@ export function emu_set_audio_pump(fn: (() => void) | null): void {
   audio_pump_fn = fn;
 }
 
+function get_now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
 function reset_fps(): void {
   fps_frame_count = 0;
   fps_last_time = get_now();
   ctx.fps = 0;
 }
+
 function update_fps(): void {
   fps_frame_count++;
 
@@ -84,16 +89,13 @@ function update_fps(): void {
   fps_last_time = now;
 }
 
-function get_now(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
 function update_snapshot(): void {
   ctx_snapshot = Object.freeze({ ...ctx });
 }
 
 function emit_update(): void {
   update_snapshot();
+
   for (const listener of listeners) {
     listener(ctx_snapshot);
   }
@@ -104,6 +106,7 @@ function cancel_loop(): void {
     cancelAnimationFrame(raf_handle);
     raf_handle = null;
   }
+
   if (timeout_handle !== null) {
     clearTimeout(timeout_handle);
     timeout_handle = null;
@@ -123,7 +126,27 @@ function schedule_loop(): void {
   raf_handle = requestAnimationFrame(run_loop);
 }
 
+// Game Boy frame timing.
+// 70224 is T-cycles per frame, not M-cycles.
+const T_CYCLES_PER_FRAME = 70224;
+const GB_FRAME_RATE = 4_194_304 / T_CYCLES_PER_FRAME;
+const TARGET_FRAME_MS = 1000 / GB_FRAME_RATE;
+
+/**
+ * Advance emulator hardware by CPU M-cycles.
+ *
+ * CPU instructions in this emulator call emu_cycles() using M-cycles.
+ * One M-cycle is 4 Game Boy T-cycles.
+ *
+ * The PPU and DMA now support batch ticking, which avoids millions of tiny
+ * ppu_tick()/dma_tick() calls per second. Timer/audio are kept per T-cycle for
+ * compatibility until those modules also get batch APIs.
+ */
 export function emu_cycles(m_cycles: number): void {
+  if (m_cycles <= 0) {
+    return;
+  }
+
   const t_cycles = m_cycles << 2;
 
   ctx.ticks += t_cycles;
@@ -138,15 +161,15 @@ export function emu_cycles(m_cycles: number): void {
   dma_tick_batch(m_cycles);
 }
 
-const T_CYCLES_PER_FRAME = 70224;
-const GB_FRAME_RATE = 4_194_304 / T_CYCLES_PER_FRAME;
-const TARGET_FRAME_MS = 1000 / GB_FRAME_RATE;
-
 function run_one_frame(): void {
   ppu_update_dirty_tiles();
 
-  const start_frame = ppu_get_context().current_frame;
+  const ppu = ppu_get_context();
+  const start_frame = ppu.current_frame;
   const start_ticks = ctx.ticks;
+
+  // Small tolerance prevents edge cases where the frame boundary lands just
+  // past the nominal cycle budget due to instruction granularity.
   const max_ticks = start_ticks + T_CYCLES_PER_FRAME + 456;
 
   while (ctx.running && !ctx.paused && !ctx.die && ctx.ticks < max_ticks) {
@@ -158,12 +181,12 @@ function run_one_frame(): void {
       return;
     }
 
-    if (ppu_get_context().current_frame !== start_frame) {
+    if (ppu.current_frame !== start_frame) {
       break;
     }
   }
 
-  ctx.current_frame = ppu_get_context().current_frame;
+  ctx.current_frame = ppu.current_frame;
 }
 
 function run_loop(): void {
@@ -180,23 +203,22 @@ function run_loop(): void {
 
   const frame_start = get_now();
 
-  // Run one Game Boy frame
   run_one_frame();
-
   update_fps();
 
-  // Pump audio immediately
+  // Pump audio immediately.
   audio_pump_fn?.();
 
   emit_update();
 
-  // Pace to ~60 FPS
+  // Pace to approximately native Game Boy frame rate.
   const elapsed = get_now() - frame_start;
   const delay = Math.max(0, TARGET_FRAME_MS - elapsed);
 
   if (delay > 0 && ctx.running && !ctx.die && !ctx.paused) {
     timeout_handle = setTimeout(() => {
       timeout_handle = null;
+
       if (ctx.running && !ctx.die && !ctx.paused) {
         schedule_loop();
       }
@@ -216,6 +238,7 @@ export function emu_get_server_context(): Readonly<emu_context> {
 
 export function emu_subscribe(listener: emu_listener): () => void {
   listeners.add(listener);
+
   return () => listeners.delete(listener);
 }
 
@@ -245,9 +268,12 @@ export function emu_init(): void {
 
 export function emu_load_rom(data: Uint8Array, filename?: string): boolean {
   const ok = cart_load(data, filename);
+
   ctx.rom_loaded = ok;
-  ctx.rom_name = ok ? (filename ?? null) : null;
+  ctx.rom_name = ok ? filename ?? null : null;
+
   emit_update();
+
   return ok;
 }
 
@@ -255,15 +281,26 @@ export function emu_load_and_start(
   data: Uint8Array,
   filename?: string,
 ): boolean {
-  if (!initialized) emu_init();
+  if (!initialized) {
+    emu_init();
+  }
+
   const ok = emu_load_rom(data, filename);
-  if (!ok) return false;
+
+  if (!ok) {
+    return false;
+  }
+
   emu_start();
+
   return true;
 }
 
 export function emu_start(): void {
-  if (!initialized) emu_init();
+  if (!initialized) {
+    emu_init();
+  }
+
   if (!ctx.rom_loaded) {
     console.warn("cannot start emulator: no rom loaded");
     return;
@@ -280,15 +317,23 @@ export function emu_start(): void {
 }
 
 export function emu_pause(): void {
-  if (!ctx.running) return;
+  if (!ctx.running) {
+    return;
+  }
+
   ctx.paused = true;
   ctx.fps = 0;
+
   emit_update();
 }
 
 export function emu_resume(): void {
-  if (!ctx.running) return;
+  if (!ctx.running) {
+    return;
+  }
+
   ctx.paused = false;
+
   reset_fps();
   emit_update();
   schedule_loop();
@@ -298,6 +343,7 @@ export function emu_stop(): void {
   ctx.running = false;
   ctx.paused = false;
   ctx.die = true;
+
   cancel_loop();
   emit_update();
 }
@@ -312,4 +358,8 @@ export function emu_get_ticks(): number {
 
 export function emu_get_fps(): number {
   return ctx.fps;
+}
+
+export function emu_get_audio_queued_sample_count(): number {
+  return audio_get_queued_sample_count();
 }

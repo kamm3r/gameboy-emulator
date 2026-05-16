@@ -183,7 +183,7 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
 
     const id = window.setInterval(() => {
       const ticks = emu_get_ticks();
-      console.log("ticks/sec", ticks - lastTicks);
+      // console.log("ticks/sec", ticks - lastTicks);
       lastTicks = ticks;
     }, 1000);
 

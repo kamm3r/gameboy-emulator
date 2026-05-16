@@ -753,80 +753,14 @@ instructions[0xff] = {
   param: 0x38,
 };
 
-const cb_instructions: Array<instruction | undefined> = new Array(0x100).fill(
-  undefined,
-);
+const none_instruction: instruction = {
+  type: in_type.IN_NONE,
+  mode: addr_mode.AM_IMP,
+};
 
 export function instruction_by_opcode(opcode: number): instruction {
-  const inst = instructions[opcode & 0xff];
-
-  if (inst === undefined) {
-    return { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
-  }
-
-  return inst;
+  return instructions[opcode & 0xff] ?? none_instruction;
 }
-
-export function cb_instruction_by_opcode(opcode: number): instruction {
-  const inst = cb_instructions[opcode & 0xff];
-
-  if (inst === undefined) {
-    return { type: in_type.IN_NONE, mode: addr_mode.AM_IMP };
-  }
-
-  return inst;
-}
-
-const inst_lookup: string[] = [
-  "<NONE>",
-  "NOP",
-  "LD",
-  "INC",
-  "DEC",
-  "RLCA",
-  "ADD",
-  "RRCA",
-  "STOP",
-  "RLA",
-  "JR",
-  "RRA",
-  "DAA",
-  "CPL",
-  "SCF",
-  "CCF",
-  "HALT",
-  "ADC",
-  "SUB",
-  "SBC",
-  "AND",
-  "XOR",
-  "OR",
-  "CP",
-  "POP",
-  "JP",
-  "PUSH",
-  "RET",
-  "CB",
-  "CALL",
-  "RETI",
-  "LDH",
-  "JPHL",
-  "DI",
-  "EI",
-  "RST",
-  "IN_ERR",
-  "IN_RLC",
-  "IN_RRC",
-  "IN_RL",
-  "IN_RR",
-  "IN_SLA",
-  "IN_SRA",
-  "IN_SWAP",
-  "IN_SRL",
-  "IN_BIT",
-  "IN_RES",
-  "IN_SET",
-];
 
 const instruction_name_map: Record<InType, string> = {
   IN_NONE: "<NONE>",

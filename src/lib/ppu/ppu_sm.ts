@@ -47,8 +47,28 @@ function set_ly(value: number): void {
   update_lyc_flag();
 }
 
-function set_mode(mode: number): void {
+function enter_mode(mode: number): void {
   lcd_set_mode(mode);
+
+  switch (mode) {
+    case MODE_OAM:
+      enter_oam();
+      break;
+
+    case MODE_HBLANK:
+      if (stat_interrupt_enabled(SS_HBLANK)) {
+        cpu_request_interrupt(INT_LCD_STAT);
+      }
+      break;
+
+    case MODE_VBLANK:
+      cpu_request_interrupt(INT_VBLANK);
+
+      if (stat_interrupt_enabled(SS_VBLANK)) {
+        cpu_request_interrupt(INT_LCD_STAT);
+      }
+      break;
+  }
 }
 
 export function lcds_mode(): number {
@@ -120,23 +140,25 @@ export function load_line_sprites(): void {
   }
 }
 
+function enter_oam(): void {
+  const ppu = ppu_get_context();
+
+  ppu.line_sprite_count = 0;
+  ppu.line_rendered = false;
+  ppu.window_was_rendered = false;
+
+  load_line_sprites();
+
+  if (stat_interrupt_enabled(SS_OAM)) {
+    cpu_request_interrupt(INT_LCD_STAT);
+  }
+}
+
 export function ppu_mode_oam(): void {
   const ppu = ppu_get_context();
 
-  if (ppu.line_ticks === 1) {
-    if (stat_interrupt_enabled(SS_OAM)) {
-      cpu_request_interrupt(INT_LCD_STAT);
-    }
-
-    ppu.line_sprite_count = 0;
-    ppu.line_rendered = false;
-    ppu.window_was_rendered = false;
-
-    load_line_sprites();
-  }
-
   if (ppu.line_ticks >= OAM_TICKS) {
-    set_mode(MODE_XFER);
+    enter_mode(MODE_XFER);
   }
 }
 
@@ -149,11 +171,7 @@ export function ppu_mode_xfer(): void {
   }
 
   if (ppu.line_ticks >= XFER_END_TICKS) {
-    set_mode(MODE_HBLANK);
-
-    if (stat_interrupt_enabled(SS_HBLANK)) {
-      cpu_request_interrupt(INT_LCD_STAT);
-    }
+    enter_mode(MODE_HBLANK);
   }
 }
 
@@ -168,12 +186,12 @@ export function ppu_mode_vblank(): void {
   increment_ly();
 
   if (lcd.ly >= LINES_PER_FRAME) {
-    set_mode(MODE_OAM);
-    set_ly(0);
-
     ppu.window_line = 0;
     ppu.line_rendered = false;
     ppu.window_was_rendered = false;
+
+    set_ly(0);
+    enter_mode(MODE_OAM);
   }
 
   ppu.line_ticks = 0;
@@ -190,12 +208,7 @@ export function ppu_mode_hblank(): void {
   increment_ly();
 
   if (lcd.ly >= YRES) {
-    set_mode(MODE_VBLANK);
-    cpu_request_interrupt(INT_VBLANK);
-
-    if (stat_interrupt_enabled(SS_VBLANK)) {
-      cpu_request_interrupt(INT_LCD_STAT);
-    }
+    enter_mode(MODE_VBLANK);
 
     ppu.current_frame++;
 
@@ -203,10 +216,7 @@ export function ppu_mode_hblank(): void {
       cart_battery_save();
     }
   } else {
-    set_mode(MODE_OAM);
-
-    ppu.line_rendered = false;
-    ppu.window_was_rendered = false;
+    enter_mode(MODE_OAM);
   }
 
   ppu.line_ticks = 0;
@@ -217,12 +227,15 @@ function run_current_mode(): void {
     case MODE_OAM:
       ppu_mode_oam();
       break;
+
     case MODE_XFER:
       ppu_mode_xfer();
       break;
+
     case MODE_VBLANK:
       ppu_mode_vblank();
       break;
+
     case MODE_HBLANK:
       ppu_mode_hblank();
       break;
@@ -251,9 +264,9 @@ function ticks_until_next_mode_boundary(): number {
 /**
  * Fast PPU advancement.
  *
- * This keeps the old per-tick behavior logically intact, but skips directly to
- * the next relevant mode boundary instead of calling ppu_tick() once per
- * T-cycle.
+ * Advances directly to the next mode boundary instead of ticking once per
+ * T-cycle. Mode-entry side effects are handled by enter_mode(), so batching
+ * does not skip OAM scan, rendering, VBlank IRQs, or STAT IRQs.
  */
 export function ppu_tick_batch(t_cycles: number): void {
   const lcd = lcd_get_context();
@@ -290,6 +303,6 @@ export function ppu_sm_init(): void {
   ppu.line_rendered = false;
   ppu.window_was_rendered = false;
 
-  set_mode(MODE_OAM);
   set_ly(0);
+  enter_mode(MODE_OAM);
 }

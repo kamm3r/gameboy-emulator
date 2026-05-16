@@ -38,10 +38,13 @@ type cartridge_context = {
   battery: boolean;
   need_save: boolean;
 
-  rtc_register: number; // 0x08..0x0C when an RTC register is selected, else -1
-  rtc_latch_state: number; // last value written to 0x6000-0x7FFF for latch sequence
-  rtc_regs: Uint8Array; // 5 bytes: S, M, H, DL, DH
+  rtc_register: number;
+  rtc_latch_state: number;
+  rtc_regs: Uint8Array;
 };
+
+const RAM_BANK_SIZE = 0x2000;
+const ROM_BANK_SIZE = 0x4000;
 
 const ctx: cartridge_context = {
   filename: "",
@@ -78,8 +81,13 @@ const ctx: cartridge_context = {
   battery: false,
   need_save: false,
 
+  // 0x08..0x0c when an RTC register is selected, else -1.
   rtc_register: -1,
+
+  // Last value written to 0x6000-0x7fff for latch sequence.
   rtc_latch_state: 0xff,
+
+  // 5 bytes: S, M, H, DL, DH.
   rtc_regs: new Uint8Array(5),
 };
 
@@ -198,7 +206,11 @@ function read_ascii(data: Uint8Array, start: number, end: number): string {
 
   for (let i = start; i < end; i++) {
     const c = data[i] ?? 0;
-    if (c === 0) break;
+
+    if (c === 0) {
+      break;
+    }
+
     out += String.fromCharCode(c);
   }
 
@@ -209,7 +221,7 @@ function parse_rom_header(rom: Uint8Array): rom_header {
   const base = 0x0100;
 
   return {
-    entry: rom.slice(base + 0x00, base + 0x04),
+    entry: rom.slice(base, base + 0x04),
     logo: rom.slice(base + 0x04, base + 0x34),
     title: read_ascii(rom, base + 0x34, base + 0x44),
     new_lic_code: read_u16_be(rom, base + 0x44),
@@ -225,66 +237,75 @@ function parse_rom_header(rom: Uint8Array): rom_header {
   };
 }
 
+function storage_available(): boolean {
+  return typeof localStorage !== "undefined";
+}
+
 function battery_key(): string {
-  return `gb_battery_${ctx.filename || ctx.header.title || "default"}`;
+  const key = ctx.filename || ctx.header.title || "default";
+  const safe = key.replace(/[^a-z0-9_.-]/gi, "_");
+
+  return `gb_battery_${safe}`;
 }
 
 function get_rom_bank_count(): number {
   return Math.max(1, ctx.rom_data.length >>> 14);
 }
 
-function normalize_mbc1_bank(bank: number): number {
-  const romBanks = get_rom_bank_count();
-  let out = bank % romBanks;
-  if ((out & 0x1f) === 0) out += 1;
-  out %= romBanks;
-  return out;
-}
-
-function normalize_mbc3_bank(bank: number): number {
-  const romBanks = get_rom_bank_count();
-  // Only $00 -> $01 remap (full 7-bit compare, but MBC3 mask is already 7-bit)
-  let out = bank & 0x7f;
-  if (out === 0) out = 1;
-  return out % romBanks;
-}
-
-function update_rom_bank(): void {
-  let bank: number;
-
-  if (cart_mbc3()) {
-    bank = normalize_mbc3_bank(ctx.rom_bank_value);
-  } else {
-    // MBC1
-    let b = ctx.rom_bank_value & 0x1f;
-    if (b === 0) b = 1;
-    if (!ctx.ram_banking) {
-      b |= (ctx.ram_bank_value & 0x03) << 5;
-    }
-    bank = normalize_mbc1_bank(b);
-  }
-
-  const start = 0x4000 * bank;
-  ctx.rom_bank_x = ctx.rom_data.slice(start, start + 0x4000);
-}
-
 function get_ram_bank_count(): number {
   switch (ctx.header.ram_size) {
+    case 0x01:
+      // 2 KiB. This implementation allocates a full 8 KiB window for
+      // simplicity; most MBC external RAM access code expects 0xa000-0xbfff.
+      return 1;
+
     case 0x02:
-      return 1; // 8 KiB
+      return 1;
+
     case 0x03:
-      return 4; // 32 KiB
+      return 4;
+
     case 0x04:
-      return 16; // 128 KiB (MBC5 only in practice)
+      return 16;
+
     case 0x05:
-      return 8; // 64 KiB (MBC30, Japanese Pokémon Crystal)
+      return 8;
+
     default:
+      // ROM+RAM / ROM+RAM+BATTERY can have RAM even when some bad dumps
+      // report unusual RAM-size fields.
+      if (ctx.header.type === 0x08 || ctx.header.type === 0x09) {
+        return 1;
+      }
+
       return 0;
   }
 }
 
-export function cart_need_save(): boolean {
-  return ctx.need_save;
+function normalize_rom_bank(bank: number): number {
+  const romBanks = get_rom_bank_count();
+
+  return ((bank % romBanks) + romBanks) % romBanks;
+}
+
+function normalize_mbc1_switchable_bank(bank: number): number {
+  let out = normalize_rom_bank(bank);
+
+  if ((out & 0x1f) === 0) {
+    out = normalize_rom_bank(out + 1);
+  }
+
+  return out;
+}
+
+function normalize_mbc3_bank(bank: number): number {
+  let out = bank & 0x7f;
+
+  if (out === 0) {
+    out = 1;
+  }
+
+  return normalize_rom_bank(out);
 }
 
 export function cart_mbc1(): boolean {
@@ -295,25 +316,92 @@ export function cart_mbc3(): boolean {
   return BETWEEN(ctx.header.type, 0x0f, 0x13);
 }
 
+function cart_rom_ram(): boolean {
+  return ctx.header.type === 0x08 || ctx.header.type === 0x09;
+}
+
+function cart_plain_rom_family(): boolean {
+  return ctx.header.type === 0x00 || cart_rom_ram();
+}
+
 function has_mbc(): boolean {
   return cart_mbc1() || cart_mbc3();
 }
 
-export function cart_battery(): boolean {
-  // Types with battery-backed save RAM
+function cart_has_timer(): boolean {
   const t = ctx.header.type;
+
+  return t === 0x0f || t === 0x10;
+}
+
+function select_ram_bank(bank: number): void {
+  const count = get_ram_bank_count();
+
+  if (count <= 0) {
+    ctx.ram_bank = null;
+    return;
+  }
+
+  ctx.ram_bank = ctx.ram_banks[bank % count] ?? null;
+}
+
+function get_mbc1_fixed_bank_number(): number {
+  if (!cart_mbc1() || !ctx.ram_banking) {
+    return 0;
+  }
+
+  return normalize_rom_bank((ctx.ram_bank_value & 0x03) << 5);
+}
+
+function get_mbc1_switchable_bank_number(): number {
+  let bank = ctx.rom_bank_value & 0x1f;
+
+  if (bank === 0) {
+    bank = 1;
+  }
+
+  if (!ctx.ram_banking) {
+    bank |= (ctx.ram_bank_value & 0x03) << 5;
+  }
+
+  return normalize_mbc1_switchable_bank(bank);
+}
+
+function update_rom_bank(): void {
+  let bank: number;
+
+  if (cart_mbc3()) {
+    bank = normalize_mbc3_bank(ctx.rom_bank_value);
+  } else {
+    bank = get_mbc1_switchable_bank_number();
+  }
+
+  const start = ROM_BANK_SIZE * bank;
+  ctx.rom_bank_x = ctx.rom_data.subarray(start, start + ROM_BANK_SIZE);
+}
+
+function read_rom0(address: number): number {
+  const bank = get_mbc1_fixed_bank_number();
+  const offset = bank * ROM_BANK_SIZE + address;
+
+  return ctx.rom_data[offset] ?? 0xff;
+}
+
+export function cart_need_save(): boolean {
+  return ctx.need_save;
+}
+
+export function cart_battery(): boolean {
+  const t = ctx.header.type;
+
   return (
     t === 0x03 || // MBC1+RAM+BATTERY
-    t === 0x06 || // MBC2+BATTERY (not yet supported)
+    t === 0x06 || // MBC2+BATTERY, unsupported here
+    t === 0x09 || // ROM+RAM+BATTERY
     t === 0x0f || // MBC3+TIMER+BATTERY
     t === 0x10 || // MBC3+TIMER+RAM+BATTERY
     t === 0x13 // MBC3+RAM+BATTERY
   );
-}
-
-function cart_has_timer(): boolean {
-  const t = ctx.header.type;
-  return t === 0x0f || t === 0x10;
 }
 
 export function cart_lic_name(): string {
@@ -333,16 +421,15 @@ export function cart_type_name(): string {
 }
 
 export function cart_setup_banking(): void {
-  for (let i = 0; i < 16; ++i) {
-    ctx.ram_banks[i] = null;
-  }
+  ctx.ram_banks.fill(null);
 
   const ramBanks = get_ram_bank_count();
+
   for (let i = 0; i < ramBanks; ++i) {
-    ctx.ram_banks[i] = new Uint8Array(0x2000);
+    ctx.ram_banks[i] = new Uint8Array(RAM_BANK_SIZE);
   }
 
-  ctx.ram_bank = ctx.ram_banks[0];
+  ctx.ram_bank = ctx.ram_banks[0] ?? null;
   update_rom_bank();
 }
 
@@ -350,14 +437,15 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
   ctx.filename = filename;
   ctx.rom_size = data.length;
   ctx.rom_data = new Uint8Array(data);
-
   ctx.header = parse_rom_header(ctx.rom_data);
 
   const t = ctx.header.type;
   const supported =
     t === 0x00 ||
-    (t >= 0x01 && t <= 0x03) || // MBC1 family
-    (t >= 0x0f && t <= 0x13); // MBC3 family
+    t === 0x08 ||
+    t === 0x09 ||
+    (t >= 0x01 && t <= 0x03) ||
+    (t >= 0x0f && t <= 0x13);
 
   if (!supported) {
     console.error(
@@ -365,18 +453,24 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
         .toString(16)
         .padStart(2, "0")} (${cart_type_name()})`,
     );
+
     return false;
   }
+
   ctx.rtc_register = -1;
   ctx.rtc_latch_state = 0xff;
   ctx.rtc_regs.fill(0);
+
   ctx.battery = cart_battery();
   ctx.need_save = false;
+
   ctx.ram_enabled = false;
   ctx.ram_banking = false;
+
   ctx.rom_bank_value = 1;
   ctx.ram_bank_value = 0;
   ctx.banking_mode = 0;
+
   ctx.ram_bank = null;
   ctx.rom_bank_x = new Uint8Array(0);
   ctx.ram_banks.fill(null);
@@ -397,6 +491,7 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
   cart_setup_banking();
 
   let checksum = 0;
+
   for (let address = 0x0134; address <= 0x014c; ++address) {
     checksum = checksum - (ctx.rom_data[address] ?? 0) - 1;
   }
@@ -418,21 +513,35 @@ export function cart_load(data: Uint8Array, filename = "rom.gb"): boolean {
 
 export function cart_battery_load(): void {
   const ramBanks = get_ram_bank_count();
-  if (ramBanks === 0) return;
+
+  if (ramBanks === 0 || !storage_available()) {
+    return;
+  }
 
   const raw = localStorage.getItem(battery_key());
-  if (!raw) return;
+
+  if (!raw) {
+    return;
+  }
 
   try {
     const parsed = JSON.parse(raw) as number[][];
-    if (!Array.isArray(parsed)) return;
+
+    if (!Array.isArray(parsed)) {
+      return;
+    }
 
     for (let bank = 0; bank < Math.min(ramBanks, parsed.length); bank++) {
       const dst = ctx.ram_banks[bank];
       const src = parsed[bank];
-      if (!dst || !Array.isArray(src)) continue;
 
-      for (let i = 0; i < Math.min(0x2000, src.length); i++) {
+      if (!dst || !Array.isArray(src)) {
+        continue;
+      }
+
+      const len = Math.min(RAM_BANK_SIZE, src.length);
+
+      for (let i = 0; i < len; i++) {
         dst[i] = src[i] & 0xff;
       }
     }
@@ -443,13 +552,16 @@ export function cart_battery_load(): void {
 
 export function cart_battery_save(): void {
   const ramBanks = get_ram_bank_count();
-  if (ramBanks === 0) return;
+
+  if (ramBanks === 0 || !storage_available()) {
+    return;
+  }
 
   try {
     const dump: number[][] = [];
 
     for (let bank = 0; bank < ramBanks; bank++) {
-      dump.push(Array.from(ctx.ram_banks[bank] ?? new Uint8Array(0x2000)));
+      dump.push(Array.from(ctx.ram_banks[bank] ?? new Uint8Array(RAM_BANK_SIZE)));
     }
 
     localStorage.setItem(battery_key(), JSON.stringify(dump));
@@ -462,12 +574,28 @@ export function cart_battery_save(): void {
 export function cart_read(address: number): number {
   address &= 0xffff;
 
+  if (cart_plain_rom_family()) {
+    if (address < 0x8000) {
+      return ctx.rom_data[address] ?? 0xff;
+    }
+
+    if (address >= 0xa000 && address < 0xc000) {
+      if (!ctx.ram_bank) {
+        return 0xff;
+      }
+
+      return ctx.ram_bank[address - 0xa000] ?? 0xff;
+    }
+
+    return 0xff;
+  }
+
   if (!has_mbc()) {
-    return ctx.rom_data[address] ?? 0xff;
+    return 0xff;
   }
 
   if (address < 0x4000) {
-    return ctx.rom_data[address] ?? 0xff;
+    return read_rom0(address);
   }
 
   if (address < 0x8000) {
@@ -475,14 +603,18 @@ export function cart_read(address: number): number {
   }
 
   if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled) return 0xff;
+    if (!ctx.ram_enabled) {
+      return 0xff;
+    }
 
     if (cart_mbc3() && ctx.rtc_register >= 0x08 && ctx.rtc_register <= 0x0c) {
-      // RTC read (stub: return latched register value)
       return ctx.rtc_regs[ctx.rtc_register - 0x08] ?? 0xff;
     }
 
-    if (!ctx.ram_bank) return 0xff;
+    if (!ctx.ram_bank) {
+      return 0xff;
+    }
+
     return ctx.ram_bank[address - 0xa000] ?? 0xff;
   }
 
@@ -493,65 +625,86 @@ export function cart_write(address: number, value: number): void {
   address &= 0xffff;
   value &= 0xff;
 
-  if (!has_mbc()) return;
+  if (cart_plain_rom_family()) {
+    if (address >= 0xa000 && address < 0xc000 && ctx.ram_bank) {
+      ctx.ram_bank[address - 0xa000] = value;
 
-  // $0000-$1FFF: RAM (and RTC) enable
+      if (ctx.battery) {
+        ctx.need_save = true;
+      }
+    }
+
+    return;
+  }
+
+  if (!has_mbc()) {
+    return;
+  }
+
+  // 0x0000-0x1fff: RAM and RTC enable.
   if (address < 0x2000) {
     ctx.ram_enabled = (value & 0x0f) === 0x0a;
     return;
   }
 
-  // $2000-$3FFF: ROM bank number
+  // 0x2000-0x3fff: ROM bank number.
   if (address < 0x4000) {
     if (cart_mbc3()) {
       let bank = value & 0x7f;
-      if (bank === 0) bank = 1;
+
+      if (bank === 0) {
+        bank = 1;
+      }
+
       ctx.rom_bank_value = bank;
     } else {
       let bank = value & 0x1f;
-      if (bank === 0) bank = 1;
+
+      if (bank === 0) {
+        bank = 1;
+      }
+
       ctx.rom_bank_value = bank;
     }
+
     update_rom_bank();
     return;
   }
 
-  // $4000-$5FFF: RAM bank / RTC register select
+  // 0x4000-0x5fff: RAM bank or RTC register select.
   if (address < 0x6000) {
     if (cart_mbc3()) {
       const v = value & 0x0f;
+
       if (v <= 0x03) {
-        // Select RAM bank
-        if (cart_need_save()) cart_battery_save();
         ctx.ram_bank_value = v;
-        ctx.ram_bank = ctx.ram_banks[v] ?? null;
+        select_ram_bank(v);
         ctx.rtc_register = -1;
       } else if (v >= 0x08 && v <= 0x0c) {
-        // Select RTC register (RAM bank not accessible)
         ctx.rtc_register = v;
       }
-      // Other values: behavior undefined; ignore
+
       return;
     }
 
-    // MBC1
     ctx.ram_bank_value = value & 0x03;
+
     if (ctx.ram_banking) {
-      if (cart_need_save()) cart_battery_save();
-      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
+      select_ram_bank(ctx.ram_bank_value);
     }
+
     update_rom_bank();
     return;
   }
 
-  // $6000-$7FFF: Banking mode (MBC1) / RTC latch (MBC3)
+  // 0x6000-0x7fff: MBC1 banking mode or MBC3 RTC latch.
   if (address < 0x8000) {
     if (cart_mbc3()) {
-      // Latch current RTC on 0 -> 1 transition
       if (ctx.rtc_latch_state === 0x00 && value === 0x01) {
-        // Stub: no real clock; keep registers as-is.
+        // RTC latch stub.
         // A full implementation would snapshot wall-clock time here.
       }
+
       ctx.rtc_latch_state = value;
       return;
     }
@@ -560,8 +713,7 @@ export function cart_write(address: number, value: number): void {
     ctx.ram_banking = ctx.banking_mode === 1;
 
     if (ctx.ram_banking) {
-      if (cart_need_save()) cart_battery_save();
-      ctx.ram_bank = ctx.ram_banks[ctx.ram_bank_value] ?? null;
+      select_ram_bank(ctx.ram_bank_value);
     } else {
       ctx.ram_bank = ctx.ram_banks[0] ?? null;
     }
@@ -570,18 +722,30 @@ export function cart_write(address: number, value: number): void {
     return;
   }
 
-  // $A000-$BFFF: External RAM or RTC register write
+  // 0xa000-0xbfff: External RAM or RTC register write.
   if (address >= 0xa000 && address < 0xc000) {
-    if (!ctx.ram_enabled) return;
-
-    if (cart_mbc3() && ctx.rtc_register >= 0x08 && ctx.rtc_register <= 0x0c) {
-      ctx.rtc_regs[ctx.rtc_register - 0x08] = value;
-      if (ctx.battery && cart_has_timer()) ctx.need_save = true;
+    if (!ctx.ram_enabled) {
       return;
     }
 
-    if (!ctx.ram_bank) return;
+    if (cart_mbc3() && ctx.rtc_register >= 0x08 && ctx.rtc_register <= 0x0c) {
+      ctx.rtc_regs[ctx.rtc_register - 0x08] = value;
+
+      if (ctx.battery && cart_has_timer()) {
+        ctx.need_save = true;
+      }
+
+      return;
+    }
+
+    if (!ctx.ram_bank) {
+      return;
+    }
+
     ctx.ram_bank[address - 0xa000] = value;
-    if (ctx.battery) ctx.need_save = true;
+
+    if (ctx.battery) {
+      ctx.need_save = true;
+    }
   }
 }

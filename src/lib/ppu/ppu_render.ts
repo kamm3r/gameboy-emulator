@@ -5,85 +5,126 @@ import {
   oam_entry,
   ppu_get_context,
   ppu_resolve_bg_tile_index,
+  ppu_update_dirty_tiles,
 } from "./ppu";
 
-let found_sprite_color_id = 0;
-let found_sprite_color = 0;
-let found_sprite_bg_priority = false;
+const bg_line_color_id = new Uint8Array(XRES);
 
-function find_top_sprite_pixel_fast(
-  sprites: oam_entry[],
-  sprite_count: number,
-  screen_x: number,
+function clear_sprite_line_buffers(): void {
+  const ppu = ppu_get_context();
+
+  ppu.sprite_line_color.fill(0);
+  ppu.sprite_line_color_id.fill(0);
+  ppu.sprite_line_priority.fill(0);
+}
+
+function draw_sprite_to_line(
+  sprite: oam_entry,
   screen_y: number,
   sprite_height: number,
-  vram: Uint8Array,
+  decoded_tiles: Uint8Array,
+  sprite_line_color: Uint32Array,
+  sprite_line_color_id: Uint8Array,
+  sprite_line_priority: Uint8Array,
   sp1_colors: [number, number, number, number],
   sp2_colors: [number, number, number, number],
-): boolean {
-  for (let i = 0; i < sprite_count; i++) {
-    const sprite = sprites[i];
+): void {
+  const sprite_x = sprite.x - 8;
+  const sprite_y = sprite.y - 16;
 
-    const sprite_x = sprite.x - 8;
+  let py = screen_y - sprite_y;
 
-    if (screen_x < sprite_x || screen_x >= sprite_x + 8) {
+  if (py < 0 || py >= sprite_height) {
+    return;
+  }
+
+  const attr = sprite.attributes;
+  const y_flip = (attr & 0x40) !== 0;
+  const x_flip = (attr & 0x20) !== 0;
+  const bg_priority = (attr & 0x80) !== 0 ? 1 : 0;
+  const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
+
+  if (y_flip) {
+    py = sprite_height - 1 - py;
+  }
+
+  let tile = sprite.tile;
+
+  if (sprite_height === 16) {
+    tile &= 0xfe;
+
+    if (py >= 8) {
+      tile++;
+      py -= 8;
+    }
+  }
+
+  tile &= 0xff;
+
+  const tile_row_base = (tile << 6) + py * 8;
+
+  let start_x = sprite_x;
+  let end_x = sprite_x + 8;
+
+  if (start_x < 0) {
+    start_x = 0;
+  }
+
+  if (end_x > XRES) {
+    end_x = XRES;
+  }
+
+  for (let x = start_x; x < end_x; x++) {
+    if (sprite_line_color_id[x] !== 0) {
       continue;
     }
 
-    const sprite_y = sprite.y - 16;
-
-    let px = screen_x - sprite_x;
-    let py = screen_y - sprite_y;
-
-    if (py < 0 || py >= sprite_height) {
-      continue;
-    }
-
-    const attr = sprite.attributes;
-
-    if ((attr & 0x20) !== 0) {
-      px = 7 - px;
-    }
-
-    if ((attr & 0x40) !== 0) {
-      py = sprite_height - 1 - py;
-    }
-
-    let tile = sprite.tile;
-
-    if (sprite_height === 16) {
-      tile &= 0xfe;
-
-      if (py >= 8) {
-        tile++;
-        py -= 8;
-      }
-    }
-
-    const row_addr = (tile << 4) + py * 2;
-    const low = vram[row_addr];
-    const high = vram[row_addr + 1];
-    const bit = 7 - px;
-
-    const color_id = ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
+    const local_x = x - sprite_x;
+    const px = x_flip ? 7 - local_x : local_x;
+    const color_id = decoded_tiles[tile_row_base + px];
 
     if (color_id === 0) {
       continue;
     }
 
-    const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
-
-    found_sprite_color_id = color_id;
-    found_sprite_color = palette[color_id];
-    found_sprite_bg_priority = (attr & 0x80) !== 0;
-
-    return true;
+    sprite_line_color_id[x] = color_id;
+    sprite_line_color[x] = palette[color_id];
+    sprite_line_priority[x] = bg_priority;
   }
-
-  return false;
 }
 
+function render_sprite_line(
+  screen_y: number,
+  sprite_height: number,
+  decoded_tiles: Uint8Array,
+  sp1_colors: [number, number, number, number],
+  sp2_colors: [number, number, number, number],
+): void {
+  const ppu = ppu_get_context();
 
+  clear_sprite_line_buffers();
+
+  const line_sprites = ppu.line_sprites;
+  const line_sprite_count = ppu.line_sprite_count;
+
+  const sprite_line_color = ppu.sprite_line_color;
+  const sprite_line_color_id = ppu.sprite_line_color_id;
+  const sprite_line_priority = ppu.sprite_line_priority;
+
+  for (let i = 0; i < line_sprite_count; i++) {
+    draw_sprite_to_line(
+      line_sprites[i],
+      screen_y,
+      sprite_height,
+      decoded_tiles,
+      sprite_line_color,
+      sprite_line_color_id,
+      sprite_line_priority,
+      sp1_colors,
+      sp2_colors,
+    );
+  }
+}
 
 export function render_scanline(): void {
   const lcd = lcd_get_context();
@@ -95,6 +136,8 @@ export function render_scanline(): void {
     ppu.window_was_rendered = false;
     return;
   }
+
+  ppu_update_dirty_tiles();
 
   const lcdc = lcd.lcdc;
   const vram = ppu.vram;
@@ -126,10 +169,19 @@ export function render_scanline(): void {
   const wy = lcd.win_y;
   const window_line = ppu.window_line;
 
-  const line_sprites = ppu.line_sprites;
-  const line_sprite_count = ppu.line_sprite_count;
-
   let used_window = false;
+
+  if (obj_enabled && ppu.line_sprite_count > 0) {
+    render_sprite_line(
+      ly,
+      sprite_height,
+      decoded_tiles,
+      sp1_colors,
+      sp2_colors,
+    );
+  } else {
+    ppu.sprite_line_color_id.fill(0);
+  }
 
   for (let x = 0; x < XRES; x++) {
     let bg_color_id = 0;
@@ -171,20 +223,13 @@ export function render_scanline(): void {
       final_color = bg_colors[bg_color_id];
     }
 
-    if (obj_enabled && line_sprite_count > 0) {
-      const has_sprite = find_top_sprite_pixel_fast(
-        line_sprites,
-        line_sprite_count,
-        x,
-        ly,
-        sprite_height,
-        vram,
-        sp1_colors,
-        sp2_colors,
-      );
+    bg_line_color_id[x] = bg_color_id;
 
-      if (has_sprite && (!found_sprite_bg_priority || bg_color_id === 0)) {
-        final_color = found_sprite_color;
+    if (obj_enabled && ppu.sprite_line_color_id[x] !== 0) {
+      const sprite_behind_bg = ppu.sprite_line_priority[x] !== 0;
+
+      if (!sprite_behind_bg || bg_color_id === 0) {
+        final_color = ppu.sprite_line_color[x];
       }
     }
 

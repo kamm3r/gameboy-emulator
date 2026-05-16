@@ -32,24 +32,24 @@ function warn_write(address: number): void {
 export function io_read(address: number): number {
   address &= 0xffff;
 
-  if (address === 0xff00) {
-    return gamepad_get_output();
-  }
+  switch (address) {
+    case 0xff00:
+      return gamepad_get_output();
 
-  if (address === 0xff01) {
-    return serialData[0];
-  }
+    case 0xff01:
+      return serialData[0];
 
-  if (address === 0xff02) {
-    return serialData[1];
+    case 0xff02:
+      // Unused bits read high on DMG.
+      return serialData[1] | 0x7e;
+
+    case 0xff0f:
+      // IF upper 3 bits are unused and read high.
+      return cpu_get_int_flags() | 0xe0;
   }
 
   if (address >= 0xff04 && address <= 0xff07) {
     return timer_read(address);
-  }
-
-  if (address === 0xff0f) {
-    return cpu_get_int_flags();
   }
 
   if (address >= 0xff10 && address <= 0xff3f) {
@@ -61,7 +61,6 @@ export function io_read(address: number): number {
   }
 
   warn_read(address);
-
   return 0xff;
 }
 
@@ -69,28 +68,26 @@ export function io_write(address: number, value: number): void {
   address &= 0xffff;
   value &= 0xff;
 
-  if (address === 0xff00) {
-    gamepad_set_sel(value);
-    return;
-  }
+  switch (address) {
+    case 0xff00:
+      gamepad_set_sel(value);
+      return;
 
-  if (address === 0xff01) {
-    serialData[0] = value;
-    return;
-  }
+    case 0xff01:
+      serialData[0] = value;
+      return;
 
-  if (address === 0xff02) {
-    serialData[1] = value;
-    return;
+    case 0xff02:
+      serialData[1] = value;
+      return;
+
+    case 0xff0f:
+      cpu_set_int_flags(value & 0x1f);
+      return;
   }
 
   if (address >= 0xff04 && address <= 0xff07) {
     timer_write(address, value);
-    return;
-  }
-
-  if (address === 0xff0f) {
-    cpu_set_int_flags(value);
     return;
   }
 

@@ -10,23 +10,47 @@ export type timer_context = {
   tac: number;
 };
 
+const DIV_INIT = 0xac00;
+
 const ctx: timer_context = {
-  div: 0xac00,
+  div: DIV_INIT,
   tima: 0,
   tma: 0,
   tac: 0,
 };
 
-function apu_div_bit(value: number): boolean {
-  return (value & (1 << 12)) !== 0;
+const TIMER_BITS = [9, 3, 5, 7] as const;
+const TIMER_ENABLE = 0x04;
+const APU_DIV_BIT = 1 << 12;
+
+function selected_timer_bit(tac = ctx.tac): number {
+  return TIMER_BITS[tac & 0x03];
 }
 
-function clock_apu_on_div_falling_edge(
-  prev_div: number,
-  next_div: number,
-): void {
-  if (apu_div_bit(prev_div) && !apu_div_bit(next_div)) {
+function timer_signal(div = ctx.div, tac = ctx.tac): boolean {
+  return (tac & TIMER_ENABLE) !== 0 && (div & (1 << selected_timer_bit(tac))) !== 0;
+}
+
+function clock_apu_if_needed(prevDiv: number, nextDiv: number): void {
+  if ((prevDiv & APU_DIV_BIT) !== 0 && (nextDiv & APU_DIV_BIT) === 0) {
     audio_on_div_falling_edge();
+  }
+}
+
+function increment_tima(): void {
+  const next = ctx.tima + 1;
+
+  if (next > 0xff) {
+    ctx.tima = ctx.tma;
+    cpu_request_interrupt(IT_TIMER);
+  } else {
+    ctx.tima = next;
+  }
+}
+
+function apply_timer_edge(prevSignal: boolean, nextSignal: boolean): void {
+  if (prevSignal && !nextSignal) {
+    increment_tima();
   }
 }
 
@@ -35,78 +59,72 @@ export function timer_get_context(): timer_context {
 }
 
 export function timer_init(): void {
-  ctx.div = 0xac00;
+  ctx.div = DIV_INIT;
   ctx.tima = 0;
   ctx.tma = 0;
   ctx.tac = 0;
 }
 
 export function timer_tick(): void {
-  const prev_div = ctx.div;
-  ctx.div = (ctx.div + 1) & 0xffff;
+  const prevDiv = ctx.div;
+  const prevSignal = timer_signal(prevDiv, ctx.tac);
 
-  clock_apu_on_div_falling_edge(prev_div, ctx.div);
+  ctx.div = (prevDiv + 1) & 0xffff;
 
-  let timer_update = false;
-
-  switch (ctx.tac & 0b11) {
-    case 0b00:
-      timer_update = (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
-      break;
-    case 0b01:
-      timer_update = (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
-      break;
-    case 0b10:
-      timer_update = (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
-      break;
-    case 0b11:
-      timer_update = (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
-      break;
-  }
-
-  if (timer_update && ctx.tac & (1 << 2)) {
-    if (ctx.tima === 0xff) {
-      ctx.tima = ctx.tma & 0xff;
-      cpu_request_interrupt(IT_TIMER);
-    } else {
-      ctx.tima = (ctx.tima + 1) & 0xff;
-    }
-  }
+  clock_apu_if_needed(prevDiv, ctx.div);
+  apply_timer_edge(prevSignal, timer_signal(ctx.div, ctx.tac));
 }
 
 export function timer_write(address: number, value: number): void {
-  switch (address) {
+  value &= 0xff;
+
+  switch (address & 0xffff) {
     case 0xff04: {
-      const prev_div = ctx.div;
+      const prevDiv = ctx.div;
+      const prevSignal = timer_signal(prevDiv, ctx.tac);
+
       ctx.div = 0;
-      clock_apu_on_div_falling_edge(prev_div, ctx.div);
+
+      clock_apu_if_needed(prevDiv, 0);
+      apply_timer_edge(prevSignal, timer_signal(0, ctx.tac));
       break;
     }
+
     case 0xff05:
-      ctx.tima = value & 0xff;
+      ctx.tima = value;
       break;
 
     case 0xff06:
-      ctx.tma = value & 0xff;
+      ctx.tma = value;
       break;
 
-    case 0xff07:
+    case 0xff07: {
+      const oldTac = ctx.tac;
+      const oldSignal = timer_signal(ctx.div, oldTac);
+
       ctx.tac = value & 0x07;
+
+      apply_timer_edge(oldSignal, timer_signal(ctx.div, ctx.tac));
       break;
+    }
   }
 }
 
 export function timer_read(address: number): number {
-  switch (address) {
+  switch (address & 0xffff) {
     case 0xff04:
-      return (ctx.div >> 8) & 0xff;
+      return ctx.div >> 8;
+
     case 0xff05:
       return ctx.tima;
+
     case 0xff06:
       return ctx.tma;
-    case 0xff07:
-      return ctx.tac;
-  }
 
-  return 0;
+    case 0xff07:
+      return 0xf8 | ctx.tac;
+
+    default:
+      return 0xff;
+  }
 }

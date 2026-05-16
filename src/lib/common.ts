@@ -5,15 +5,12 @@ export const SCREEN_WIDTH = XRES;
 export const SCREEN_HEIGHT = YRES;
 
 export function BIT(a: number, n: number): number {
-  return a & (1 << n) ? 1 : 0;
+  return (a >>> n) & 1;
 }
 
 export function BIT_SET(a: number, n: number, on: number): number {
-  if (on) {
-    return a | (1 << n);
-  } else {
-    return a & ~(1 << n);
-  }
+  const mask = 1 << n;
+  return on ? a | mask : a & ~mask;
 }
 
 export function BETWEEN(a: number, b: number, c: number): boolean {
@@ -25,39 +22,70 @@ export function delay(ms: number): Promise<void> {
 }
 
 export function NO_IMPL(): void {
-  console.error("NOT YET IMPLEMENTED\n");
+  console.error("NOT YET IMPLEMENTED");
 }
 
-export function formatter(
-  formatString: string,
-  ...args: (number | string)[]
-): string {
+type FormatArg = number | string;
+
+/**
+ * Small printf-style formatter.
+ *
+ * Supports:
+ *   %d
+ *   %s
+ *   %X
+ *   %2X
+ *   %02X
+ *   %2.2X
+ *   %-8s
+ */
+export function formatter(formatString: string, ...args: FormatArg[]): string {
+  let argIndex = 0;
+
   return formatString.replace(
-    /%(-?)(\d+)?(l)?(\d*)([sdX])/g,
-    (match, align, width, long, precision, type) => {
-      const value = args.shift();
+    /%(-)?(0)?(\d+)?(?:\.(\d+))?[l]?([sdX])/g,
+    (match, leftAlign, zeroPad, widthRaw, precisionRaw, type) => {
+      const value = args[argIndex++];
 
       if (value === undefined) {
         return match;
       }
 
-      if (type === "d") {
-        return value.toString();
-      } else if (type === "s") {
-        const str = value.toString();
-        if (align === "-") {
-          return str.padEnd(width ? parseInt(width) : str.length, " ");
+      const width = widthRaw ? Number.parseInt(widthRaw, 10) : 0;
+      const precision = precisionRaw ? Number.parseInt(precisionRaw, 10) : 0;
+
+      let out: string;
+
+      switch (type) {
+        case "d":
+          out = Number(value).toString(10);
+          break;
+
+        case "s":
+          out = String(value);
+          break;
+
+        case "X": {
+          const minDigits = precision || width || 0;
+          out = Number(value)
+            .toString(16)
+            .toUpperCase()
+            .padStart(minDigits, "0");
+          break;
         }
-        return str.padStart(width ? parseInt(width) : str.length, " ");
-      } else if (type === "X") {
-        return value
-          .toString()
-          .toUpperCase()
-          .padStart(width ? parseInt(width) : 0, "0");
+
+        default:
+          return match;
       }
 
-      return match;
-    }
+      if (type !== "X" && width > out.length) {
+        out = leftAlign
+          ? out.padEnd(width, " ")
+          : out.padStart(width, zeroPad ? "0" : " ");
+      }
+
+      return out;
+    },
   );
 }
 
@@ -73,8 +101,8 @@ export class Flags {
 
   value: number;
 
-  constructor(initialValue: number = 0) {
-    this.value = initialValue;
+  constructor(initialValue = 0) {
+    this.value = initialValue & 0xf0;
   }
 
   isSet(flag: number): boolean {
@@ -82,24 +110,22 @@ export class Flags {
   }
 
   set(flag: number): void {
-    this.value |= flag;
+    this.value = (this.value | flag) & 0xf0;
   }
 
   unset(flag: number): void {
-    this.value &= ~flag;
+    this.value = (this.value & ~flag) & 0xf0;
   }
 
   toggle(flag: number): void {
-    this.value ^= flag;
+    this.value = (this.value ^ flag) & 0xf0;
   }
 
   static from(value: number): Flags {
-    const flags = new Flags();
-    flags.value = value;
-    return flags;
+    return new Flags(value);
   }
 
   toNumber(): number {
-    return this.value;
+    return this.value & 0xf0;
   }
 }

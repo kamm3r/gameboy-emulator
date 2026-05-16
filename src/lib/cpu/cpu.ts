@@ -1,5 +1,4 @@
 import { bus_read } from "@/lib/memory/bus";
-import { formatter } from "@/lib/common";
 import { fetch_data } from "@/lib/cpu/cpu_fetch";
 import { instruction_get_processor } from "@/lib/cpu/cpu_proc";
 import { cpu_handle_interrupts } from "@/lib/interrupts";
@@ -43,19 +42,21 @@ export type cpu_context = {
   int_flags: number;
 };
 
+const registers: cpu_registers = {
+  A: 0,
+  F: 0,
+  B: 0,
+  C: 0,
+  D: 0,
+  E: 0,
+  H: 0,
+  L: 0,
+  PC: 0,
+  SP: 0,
+};
+
 const ctx: cpu_context = {
-  registers: {
-    A: 0,
-    F: 0,
-    B: 0,
-    C: 0,
-    D: 0,
-    E: 0,
-    H: 0,
-    L: 0,
-    PC: 0,
-    SP: 0,
-  },
+  registers,
 
   fetched_data: 0,
   memory_destination: 0,
@@ -74,17 +75,27 @@ const ctx: cpu_context = {
 
 const CPU_DEBUG = false;
 
+function hex2(value: number): string {
+  return (value & 0xff).toString(16).padStart(2, "0");
+}
+
+function hex4(value: number): string {
+  return (value & 0xffff).toString(16).padStart(4, "0");
+}
+
 export function cpu_init(): void {
-  ctx.registers.PC = 0x0100;
-  ctx.registers.SP = 0xfffe;
-  ctx.registers.A = 0x01;
-  ctx.registers.F = 0xb0;
-  ctx.registers.B = 0x00;
-  ctx.registers.C = 0x13;
-  ctx.registers.D = 0x00;
-  ctx.registers.E = 0xd8;
-  ctx.registers.H = 0x01;
-  ctx.registers.L = 0x4d;
+  const r = ctx.registers;
+
+  r.PC = 0x0100;
+  r.SP = 0xfffe;
+  r.A = 0x01;
+  r.F = 0xb0;
+  r.B = 0x00;
+  r.C = 0x13;
+  r.D = 0x00;
+  r.E = 0xd8;
+  r.H = 0x01;
+  r.L = 0x4d;
 
   ctx.fetched_data = 0;
   ctx.memory_destination = 0;
@@ -104,79 +115,83 @@ export function cpu_init(): void {
 }
 
 export function fetch_instruction(): void {
-  ctx.current_opcode = bus_read(ctx.registers.PC) & 0xff;
-  ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
-  ctx.current_instruction = instruction_by_opcode(ctx.current_opcode) ?? null;
+  const r = ctx.registers;
+  const opcode = bus_read(r.PC) & 0xff;
+
+  r.PC = (r.PC + 1) & 0xffff;
+  ctx.current_opcode = opcode;
+  ctx.current_instruction = instruction_by_opcode(opcode);
 }
 
 export function execute(): void {
   const inst = ctx.current_instruction;
 
-  if (!inst) {
+  if (inst === null) {
     throw new Error(
-      `Unknown instruction ${ctx.current_opcode
-        .toString(16)
-        .padStart(2, "0")} at PC ${((ctx.registers.PC - 1) & 0xffff)
-        .toString(16)
-        .padStart(4, "0")}`,
+      `Unknown instruction ${hex2(ctx.current_opcode)} at PC ${hex4(
+        ctx.registers.PC - 1,
+      )}`,
     );
   }
 
   const proc = instruction_get_processor(inst.type);
 
-  if (!proc) {
+  if (proc === undefined) {
     throw new Error(
-      `No processor for instruction ${instruction_name(
-        inst.type,
-      )} opcode=${ctx.current_opcode
-        .toString(16)
-        .padStart(2, "0")}`,
+      `No processor for instruction ${instruction_name(inst.type)} opcode=${hex2(
+        ctx.current_opcode,
+      )}`,
     );
   }
 
   proc(ctx);
 }
 
+function cpu_debug_log(pc: number): void {
+  const r = ctx.registers;
+  const inst = ctx.current_instruction;
+
+  if (inst === null) {
+    return;
+  }
+
+  const f = r.F;
+  const flags = `${f & 0x80 ? "Z" : "-"}${f & 0x40 ? "N" : "-"}${
+    f & 0x20 ? "H" : "-"
+  }${f & 0x10 ? "C" : "-"}`;
+
+  console.log(
+    `${emu_get_context().ticks
+      .toString(16)
+      .padStart(8, "0")
+      .toUpperCase()} - ${hex4(pc).toUpperCase()}: ${instruction_name(
+      inst.type,
+    ).padEnd(12)} (${hex2(ctx.current_opcode).toUpperCase()} ${hex2(
+      bus_read((pc + 1) & 0xffff),
+    ).toUpperCase()} ${hex2(bus_read((pc + 2) & 0xffff)).toUpperCase()}) ` +
+      `A: ${hex2(r.A).toUpperCase()} F: ${flags} ` +
+      `BC: ${hex2(r.B).toUpperCase()}${hex2(r.C).toUpperCase()} ` +
+      `DE: ${hex2(r.D).toUpperCase()}${hex2(r.E).toUpperCase()} ` +
+      `HL: ${hex2(r.H).toUpperCase()}${hex2(r.L).toUpperCase()}`,
+  );
+}
+
 export function cpu_step(): boolean {
+  const r = ctx.registers;
+
   if (!ctx.halted) {
-    const pc = ctx.registers.PC;
+    const pc = r.PC;
 
     fetch_instruction();
     emu_cycles(1);
     fetch_data(ctx);
 
-    if (CPU_DEBUG && ctx.current_instruction) {
-      const flags = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
-        ctx.registers.F & (1 << 6) ? "N" : "-"
-      }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
-        ctx.registers.F & (1 << 4) ? "C" : "-"
-      }`;
-
-      console.log(
-        formatter(
-          "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
-          emu_get_context().ticks,
-          pc,
-          instruction_name(ctx.current_instruction.type),
-          ctx.current_opcode,
-          bus_read((pc + 1) & 0xffff),
-          bus_read((pc + 2) & 0xffff),
-          ctx.registers.A,
-          flags,
-          ctx.registers.B,
-          ctx.registers.C,
-          ctx.registers.D,
-          ctx.registers.E,
-          ctx.registers.H,
-          ctx.registers.L,
-        ),
-      );
+    if (CPU_DEBUG) {
+      cpu_debug_log(pc);
     }
 
     if (ctx.current_instruction === null) {
-      console.log(
-        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
-      );
+      console.log(`Unknown Instruction! ${hex2(ctx.current_opcode)}`);
       return false;
     }
 
@@ -187,7 +202,7 @@ export function cpu_step(): boolean {
   } else {
     emu_cycles(1);
 
-    if (ctx.int_flags) {
+    if (ctx.int_flags !== 0) {
       ctx.halted = false;
     }
   }
