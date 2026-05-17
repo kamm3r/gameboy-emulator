@@ -1,584 +1,205 @@
-import {
-  CPU_HZ,
-  DEFAULT_MAX_BUFFERED_SAMPLES,
-  DEFAULT_SAMPLE_RATE,
-  NR10,
-  NR11,
-  NR12,
-  NR13,
-  NR14,
-  NR21,
-  NR22,
-  NR23,
-  NR24,
-  NR30,
-  NR31,
-  NR32,
-  NR33,
-  NR34,
-  NR41,
-  NR42,
-  NR43,
-  NR44,
-  NR50,
-  NR51,
-  NR52,
-  WAVE_RAM_END,
-  WAVE_RAM_START,
-} from "./constants";
-import { frame_sequencer_tick } from "./frame-sequencer";
-import { mix_and_push_sample } from "./mixer";
-import { tick_noise, trigger_noise } from "./noise";
-import {
-  audio_clear_samples,
-  audio_consume_samples,
-  audio_get_queued_sample_count,
-  trim_audio_queue,
-} from "./queue";
-import { envelope_dac_on, trigger_pulse, tick_pulse } from "./pulse";
-import {
-  ctx,
-  make_noise_channel,
-  make_pulse_channel,
-  make_wave_channel,
-  type audio_options,
-  type envelope,
-  type length_counter,
-  type pulse_channel,
-} from "./state";
-import {
-  ch3_dac_on,
-  tick_wave,
-  trigger_wave,
-  wave_ram_read,
-  wave_ram_write,
-} from "./wave";
-import { length_counter_handle_nrx4 } from "./length-counter";
+import { CPU_HZ } from "../common";
+import { type pulse_state, type wave_state, type noise_state } from "./state";
+import { pulse_init, pulse_tick, pulse_sample, pulse_write_nr0, pulse_write_nr1, pulse_write_nr2, pulse_write_nr3, pulse_write_nr4, pulse_read_nr0, pulse_read_nr1, pulse_read_nr2, pulse_read_nr3, pulse_read_nr4, pulse_clock_length, pulse_clock_sweep, pulse_clock_envelope } from "./pulse";
+import { wave_init, wave_tick, wave_sample, wave_write_nr0, wave_write_nr1, wave_write_nr2, wave_write_nr3, wave_write_nr4, wave_read_nr0, wave_read_nr1, wave_read_nr2, wave_read_nr3, wave_read_nr4, wave_read_ram, wave_write_ram, wave_clock_length } from "./wave";
+import { noise_init, noise_tick, noise_sample, noise_write_nr1, noise_write_nr2, noise_write_nr3, noise_write_nr4, noise_read_nr1, noise_read_nr2, noise_read_nr3, noise_read_nr4, noise_clock_length, noise_clock_envelope } from "./noise";
+import { mixer_init, mixer_mix, mixer_update_volumes } from "./mixer";
+import { audio_queue_push } from "./queue";
+import { fs_init, fs_tick } from "./frame_sequencer";
 
-function next_step_clocks_length(): boolean {
-  const next = (ctx.frame_seq_step + 1) & 7;
-  return next === 0 || next === 2 || next === 4 || next === 6;
-}
+type apu_context = {
+  enabled: boolean;
+  cycle_counter: number;
+  sample_interval: number;
+  ch1: pulse_state;
+  ch2: pulse_state;
+  ch3: wave_state;
+  ch4: noise_state;
+  mixer: ReturnType<typeof mixer_init>;
+  fs: ReturnType<typeof fs_init>;
+  nr51: number;
+  nr50: number;
+};
 
-function write_nrx4_pulse(
-  ch: pulse_channel,
-  value: number,
-  with_sweep: boolean,
-): void {
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
+const ctx: apu_context = {
+  enabled: false,
+  cycle_counter: 0,
+  sample_interval: CPU_HZ / 48000,
+  ch1: pulse_init(),
+  ch2: pulse_init(),
+  ch3: wave_init(),
+  ch4: noise_init(),
+  mixer: mixer_init(),
+  fs: fs_init(),
+  nr51: 0,
+  nr50: 0,
+};
 
-  ch.enabled = length_counter_handle_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    64,
-    next_step_clocks_length(),
-    () => {
-      trigger_pulse(ch, with_sweep);
-      return ch.enabled;
-    },
-  );
-}
-
-function write_nrx4_wave(value: number): void {
-  const ch = ctx.ch3;
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
-
-  ch.enabled = length_counter_handle_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    256,
-    next_step_clocks_length(),
-    () => {
-      trigger_wave();
-      return ch.enabled;
-    },
-  );
-}
-
-function write_nrx4_noise(value: number): void {
-  const ch = ctx.ch4;
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
-
-  ch.enabled = length_counter_handle_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    64,
-    next_step_clocks_length(),
-    () => {
-      trigger_noise();
-      return ch.enabled;
-    },
-  );
-}
-
-function write_envelope_reg(
-  env: envelope,
-  ch: { enabled: boolean; dac_enabled: boolean },
-  value: number,
-): void {
-  env.initial_volume = (value >> 4) & 0x0f;
-  env.add_mode = (value & 0x08) !== 0;
-  env.period = value & 0x07;
-
-  ch.dac_enabled = envelope_dac_on(value);
-
-  if (!ch.dac_enabled) {
-    ch.enabled = false;
-  }
-}
-
-function update_nr52(): void {
-  ctx.nr52 =
-    (ctx.enabled ? 0x80 : 0) |
-    0x70 |
-    (ctx.ch1.enabled ? 0x01 : 0) |
-    (ctx.ch2.enabled ? 0x02 : 0) |
-    (ctx.ch3.enabled ? 0x04 : 0) |
-    (ctx.ch4.enabled ? 0x08 : 0);
-}
-
-function clear_channel_registers_and_runtime_state(): void {
-  ctx.ch1 = make_pulse_channel();
-  ctx.ch2 = make_pulse_channel();
-  ctx.ch3 = make_wave_channel();
-  ctx.ch4 = make_noise_channel();
-
-  ctx.ch1.enabled = false;
-  ctx.ch2.enabled = false;
-  ctx.ch3.enabled = false;
-  ctx.ch4.enabled = false;
-
-  ctx.ch1.dac_enabled = false;
-  ctx.ch2.dac_enabled = false;
-  ctx.ch3.dac_enabled = false;
-  ctx.ch4.dac_enabled = false;
-
-  ctx.ch1.length.counter = 0;
-  ctx.ch2.length.counter = 0;
-  ctx.ch3.length.counter = 0;
-  ctx.ch4.length.counter = 0;
-
-  ctx.ch1.length.enabled = false;
-  ctx.ch2.length.enabled = false;
-  ctx.ch3.length.enabled = false;
-  ctx.ch4.length.enabled = false;
-
-  ctx.ch1.nrx0 = 0;
-  ctx.ch1.nrx1 = 0;
-  ctx.ch1.nrx2 = 0;
-  ctx.ch1.nrx3 = 0;
-  ctx.ch1.nrx4 = 0;
-
-  ctx.ch2.nrx1 = 0;
-  ctx.ch2.nrx2 = 0;
-  ctx.ch2.nrx3 = 0;
-  ctx.ch2.nrx4 = 0;
-
-  ctx.ch3.nr30 = 0;
-  ctx.ch3.nr31 = 0;
-  ctx.ch3.nr32 = 0;
-  ctx.ch3.nr33 = 0;
-  ctx.ch3.nr34 = 0;
-
-  ctx.ch4.nr41 = 0;
-  ctx.ch4.nr42 = 0;
-  ctx.ch4.nr43 = 0;
-  ctx.ch4.nr44 = 0;
-}
-
-function power_off_apu(): void {
-  clear_channel_registers_and_runtime_state();
-
-  ctx.nr50 = 0;
-  ctx.nr51 = 0;
-  ctx.enabled = false;
-
-  ctx.hpf_cap_l = 0;
-  ctx.hpf_cap_r = 0;
-
-  update_nr52();
-}
-
-function power_on_apu(): void {
-  ctx.enabled = true;
-
-  ctx.frame_seq_step = 7;
-
-  ctx.ch1.duty_pos = 0;
-  ctx.ch2.duty_pos = 0;
-  ctx.ch3.wave_pos = 0;
-
-  update_nr52();
-}
-
-function write_length_while_powered_off(address: number, value: number): boolean {
-  switch (address) {
-    case NR11:
-      ctx.ch1.length.counter = 64 - (value & 0x3f);
-      return true;
-
-    case NR21:
-      ctx.ch2.length.counter = 64 - (value & 0x3f);
-      return true;
-
-    case NR31:
-      ctx.ch3.length.counter = 256 - value;
-      return true;
-
-    case NR41:
-      ctx.ch4.length.counter = 64 - (value & 0x3f);
-      return true;
-
-    default:
-      return false;
-  }
-}
-
-export function audio_init(options?: audio_options): void {
-  ctx.enabled = false;
-
-  clear_channel_registers_and_runtime_state();
-
-  ctx.nr50 = 0;
-  ctx.nr51 = 0;
-  ctx.nr52 = 0x70;
-
-  ctx.wave_ram.fill(0);
-
-  ctx.frame_seq_step = 7;
-
-  ctx.sample_rate = options?.sample_rate ?? DEFAULT_SAMPLE_RATE;
-  ctx.cycles_per_sample = CPU_HZ / ctx.sample_rate;
-  ctx.sample_cycle_accum = 0;
-
-  ctx.max_buffered_samples =
-    options?.max_buffered_samples ?? DEFAULT_MAX_BUFFERED_SAMPLES;
-
-  trim_audio_queue();
-  audio_clear_samples();
-
-  ctx.hpf_cap_l = 0;
-  ctx.hpf_cap_r = 0;
-
-  update_nr52();
-}
-
-export function audio_set_sample_rate(sample_rate: number): void {
-  if (!Number.isFinite(sample_rate) || sample_rate <= 0) {
-    return;
-  }
-
-  ctx.sample_rate = sample_rate;
-  ctx.cycles_per_sample = CPU_HZ / sample_rate;
-  ctx.sample_cycle_accum = 0;
-}
+let max_buffered = 0;
+let sample_rate = 48000;
 
 export function audio_set_max_buffered_samples(max: number): void {
-  if (!Number.isFinite(max) || max <= 0) {
-    return;
-  }
-
-  ctx.max_buffered_samples = max | 0;
-  trim_audio_queue();
+  max_buffered = max;
 }
 
-export function audio_tick(): void {
-  if (ctx.enabled) {
-    tick_pulse(ctx.ch1);
-    tick_pulse(ctx.ch2);
-    tick_wave();
-    tick_noise();
-  } else if (ctx.ch3.access_countdown > 0) {
-    ctx.ch3.access_countdown--;
-  }
-
-  ctx.sample_cycle_accum += 1;
-
-  while (ctx.sample_cycle_accum >= ctx.cycles_per_sample) {
-    ctx.sample_cycle_accum -= ctx.cycles_per_sample;
-    mix_and_push_sample();
-  }
+export function audio_set_sample_rate(rate: number): void {
+  sample_rate = rate;
+  ctx.sample_interval = CPU_HZ / rate;
 }
 
-export function audio_on_div_falling_edge(): void {
+let last_left = 0;
+let last_right = 0;
+
+export function audio_init(): void {
+  ctx.enabled = false;
+  ctx.cycle_counter = 0;
+  ctx.nr51 = 0;
+  ctx.nr50 = 0;
+  ctx.ch1 = pulse_init();
+  ctx.ch2 = pulse_init();
+  ctx.ch3 = wave_init();
+  ctx.ch4 = noise_init();
+  ctx.mixer = mixer_init();
+  ctx.fs = fs_init();
+}
+
+export function audio_tick(t_cycles: number): void {
   if (!ctx.enabled) {
     return;
   }
 
-  frame_sequencer_tick();
+  for (let i = 0; i < t_cycles; i++) {
+    pulse_tick(ctx.ch1);
+    pulse_tick(ctx.ch2);
+    wave_tick(ctx.ch3);
+    noise_tick(ctx.ch4);
+
+    ctx.cycle_counter++;
+
+    if (ctx.cycle_counter >= ctx.sample_interval) {
+      ctx.cycle_counter -= ctx.sample_interval;
+
+      const s1 = pulse_sample(ctx.ch1);
+      const s2 = pulse_sample(ctx.ch2);
+      const s3 = wave_sample(ctx.ch3);
+      const s4 = noise_sample(ctx.ch4);
+
+      const [left, right] = mixer_mix(ctx.mixer, s1, s2, s3, s4, ctx.nr51);
+
+      last_left = left;
+      last_right = right;
+
+      const buf = new Float32Array(2);
+      buf[0] = left;
+      buf[1] = right;
+      audio_queue_push(buf);
+    }
+  }
+
+  const step = fs_tick(ctx.fs);
+
+  if (step >= 0) {
+    if (step === 0 || step === 4) {
+      pulse_clock_length(ctx.ch1);
+      pulse_clock_length(ctx.ch2);
+      wave_clock_length(ctx.ch3);
+      noise_clock_length(ctx.ch4);
+    }
+
+    if (step === 2 || step === 6) {
+      pulse_clock_length(ctx.ch1);
+      pulse_clock_length(ctx.ch2);
+      wave_clock_length(ctx.ch3);
+      noise_clock_length(ctx.ch4);
+      pulse_clock_sweep(ctx.ch1);
+    }
+
+    if (step === 7) {
+      pulse_clock_envelope(ctx.ch1);
+      pulse_clock_envelope(ctx.ch2);
+      noise_clock_envelope(ctx.ch4);
+    }
+  }
 }
 
 export function audio_read(address: number): number {
-  switch (address) {
-    case NR10:
-      return ctx.ch1.nrx0 | 0x80;
-
-    case NR11:
-      return ctx.ch1.nrx1 | 0x3f;
-
-    case NR12:
-      return ctx.ch1.nrx2;
-
-    case NR13:
-      return 0xff;
-
-    case NR14:
-      return (ctx.ch1.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case 0xff15:
-      return 0xff;
-
-    case NR21:
-      return ctx.ch2.nrx1 | 0x3f;
-
-    case NR22:
-      return ctx.ch2.nrx2;
-
-    case NR23:
-      return 0xff;
-
-    case NR24:
-      return (ctx.ch2.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case NR30:
-      return ctx.ch3.nr30 | 0x7f;
-
-    case NR31:
-      return 0xff;
-
-    case NR32:
-      return ctx.ch3.nr32 | 0x9f;
-
-    case NR33:
-      return 0xff;
-
-    case NR34:
-      return (ctx.ch3.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case 0xff1f:
-      return 0xff;
-
-    case NR41:
-      return 0xff;
-
-    case NR42:
-      return ctx.ch4.nr42;
-
-    case NR43:
-      return ctx.ch4.nr43;
-
-    case NR44:
-      return (ctx.ch4.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case NR50:
-      return ctx.nr50;
-
-    case NR51:
-      return ctx.nr51;
-
-    case NR52:
-      update_nr52();
-      return ctx.nr52;
-
-    default:
-      if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-        return wave_ram_read(address - WAVE_RAM_START);
-      }
-
-      return 0xff;
+  switch (address & 0xff) {
+    case 0x10: return pulse_read_nr0(ctx.ch1);
+    case 0x11: return pulse_read_nr1(ctx.ch1);
+    case 0x12: return pulse_read_nr2(ctx.ch1);
+    case 0x13: return pulse_read_nr3();
+    case 0x14: return pulse_read_nr4(ctx.ch1);
+    case 0x15: return 0xff;
+    case 0x16: return pulse_read_nr1(ctx.ch2);
+    case 0x17: return pulse_read_nr2(ctx.ch2);
+    case 0x18: return pulse_read_nr3();
+    case 0x19: return pulse_read_nr4(ctx.ch2);
+    case 0x1a: return wave_read_nr0(ctx.ch3);
+    case 0x1b: return wave_read_nr1();
+    case 0x1c: { const code = ctx.ch3.volume_code; return (code << 5) | 0x9f; }
+    case 0x1d: return 0xff;
+    case 0x1e: return wave_read_nr4(ctx.ch3);
+    case 0x1f: return 0xff;
+    case 0x20: return noise_read_nr1();
+    case 0x21: return noise_read_nr2(ctx.ch4);
+    case 0x22: return noise_read_nr3(ctx.ch4);
+    case 0x23: return noise_read_nr4(ctx.ch4);
+    case 0x24: return ctx.nr50;
+    case 0x25: return ctx.nr51;
+    case 0x26: return (ctx.enabled ? 0x80 : 0) | 0x70;
+    case 0x30: case 0x31: case 0x32: case 0x33:
+    case 0x34: case 0x35: case 0x36: case 0x37:
+    case 0x38: case 0x39: case 0x3a: case 0x3b:
+    case 0x3c: case 0x3d: case 0x3e: case 0x3f:
+      return wave_read_ram(ctx.ch3, address - 0xff30);
+    default: return 0xff;
   }
 }
 
 export function audio_write(address: number, value: number): void {
   value &= 0xff;
 
-  if (address === NR52) {
-    const enable_requested = (value & 0x80) !== 0;
-
-    if (enable_requested) {
-      if (!ctx.enabled) {
-        power_on_apu();
-      }
-    } else if (ctx.enabled) {
-      power_off_apu();
-    }
-
-    update_nr52();
-    return;
-  }
-
-  if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-    wave_ram_write(address - WAVE_RAM_START, value);
-    return;
-  }
-
-  if (!ctx.enabled) {
-    write_length_while_powered_off(address, value);
-    return;
-  }
-
-  switch (address) {
-    case NR10: {
-      const old_negate = ctx.ch1.sweep_negate;
-
-      ctx.ch1.nrx0 = value & 0x7f;
-      ctx.ch1.sweep_period = (value >> 4) & 0x07;
-      ctx.ch1.sweep_negate = (value & 0x08) !== 0;
-      ctx.ch1.sweep_shift = value & 0x07;
-
-      if (old_negate && !ctx.ch1.sweep_negate && ctx.ch1.sweep_negate_used) {
-        ctx.ch1.enabled = false;
-      }
-
-      return;
-    }
-
-    case NR11:
-      ctx.ch1.nrx1 = value;
-      ctx.ch1.duty = (value >> 6) & 0x03;
-      ctx.ch1.length.counter = 64 - (value & 0x3f);
-      return;
-
-    case NR12:
-      ctx.ch1.nrx2 = value;
-      write_envelope_reg(ctx.ch1.env, ctx.ch1, value);
-      return;
-
-    case NR13:
-      ctx.ch1.nrx3 = value;
-      ctx.ch1.period_value = (ctx.ch1.period_value & 0x700) | value;
-      return;
-
-    case NR14:
-      ctx.ch1.nrx4 = value & 0xc7;
-      ctx.ch1.period_value =
-        (ctx.ch1.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_pulse(ctx.ch1, value, true);
-      return;
-
-    case NR21:
-      ctx.ch2.nrx1 = value;
-      ctx.ch2.duty = (value >> 6) & 0x03;
-      ctx.ch2.length.counter = 64 - (value & 0x3f);
-      return;
-
-    case NR22:
-      ctx.ch2.nrx2 = value;
-      write_envelope_reg(ctx.ch2.env, ctx.ch2, value);
-      return;
-
-    case NR23:
-      ctx.ch2.nrx3 = value;
-      ctx.ch2.period_value = (ctx.ch2.period_value & 0x700) | value;
-      return;
-
-    case NR24:
-      ctx.ch2.nrx4 = value & 0xc7;
-      ctx.ch2.period_value =
-        (ctx.ch2.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_pulse(ctx.ch2, value, false);
-      return;
-
-    case NR30:
-      ctx.ch3.nr30 = value & 0x80;
-      ctx.ch3.dac_enabled = ch3_dac_on(value);
-
-      if (!ctx.ch3.dac_enabled) {
-        ctx.ch3.enabled = false;
-      }
-
-      return;
-
-    case NR31:
-      ctx.ch3.nr31 = value;
-      ctx.ch3.length.counter = 256 - value;
-      return;
-
-    case NR32:
-      ctx.ch3.nr32 = value & 0x60;
-      ctx.ch3.volume_code = (value >> 5) & 0x03;
-      return;
-
-    case NR33:
-      ctx.ch3.nr33 = value;
-      ctx.ch3.period_value = (ctx.ch3.period_value & 0x700) | value;
-      return;
-
-    case NR34:
-      ctx.ch3.nr34 = value & 0xc7;
-      ctx.ch3.period_value =
-        (ctx.ch3.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_wave(value);
-      return;
-
-    case NR41:
-      ctx.ch4.nr41 = value;
-      ctx.ch4.length.counter = 64 - (value & 0x3f);
-      return;
-
-    case NR42:
-      ctx.ch4.nr42 = value;
-      write_envelope_reg(ctx.ch4.env, ctx.ch4, value);
-      return;
-
-    case NR43:
-      ctx.ch4.nr43 = value;
-      ctx.ch4.clock_shift = (value >> 4) & 0x0f;
-      ctx.ch4.lfsr_width_mode = (value & 0x08) !== 0;
-      ctx.ch4.divisor_code = value & 0x07;
-      return;
-
-    case NR44:
-      ctx.ch4.nr44 = value & 0xc0;
-      write_nrx4_noise(value);
-      return;
-
-    case NR50:
+  switch (address & 0xff) {
+    case 0x10: pulse_write_nr0(ctx.ch1, value); break;
+    case 0x11: pulse_write_nr1(ctx.ch1, value); break;
+    case 0x12: pulse_write_nr2(ctx.ch1, value); break;
+    case 0x13: pulse_write_nr3(ctx.ch1, value); break;
+    case 0x14: pulse_write_nr4(ctx.ch1, value, 1); break;
+    case 0x15: break;
+    case 0x16: pulse_write_nr1(ctx.ch2, value); break;
+    case 0x17: pulse_write_nr2(ctx.ch2, value); break;
+    case 0x18: pulse_write_nr3(ctx.ch2, value); break;
+    case 0x19: pulse_write_nr4(ctx.ch2, value, 2); break;
+    case 0x1a: wave_write_nr0(ctx.ch3, value); break;
+    case 0x1b: wave_write_nr1(ctx.ch3, value); break;
+    case 0x1c: wave_write_nr2(ctx.ch3, value); break;
+    case 0x1d: wave_write_nr3(ctx.ch3, value); break;
+    case 0x1e: wave_write_nr4(ctx.ch3, value); break;
+    case 0x1f: break;
+    case 0x20: noise_write_nr1(ctx.ch4, value); break;
+    case 0x21: noise_write_nr2(ctx.ch4, value); break;
+    case 0x22: noise_write_nr3(ctx.ch4, value); break;
+    case 0x23: noise_write_nr4(ctx.ch4, value); break;
+    case 0x24:
       ctx.nr50 = value;
-      return;
-
-    case NR51:
+      mixer_update_volumes(ctx.mixer, value);
+      break;
+    case 0x25:
       ctx.nr51 = value;
-      return;
+      break;
+    case 0x26:
+      ctx.enabled = (value & 0x80) !== 0;
+      if (!ctx.enabled) {
+        ctx.ch1 = pulse_init();
+        ctx.ch2 = pulse_init();
+        ctx.ch3 = wave_init();
+        ctx.ch4 = noise_init();
+      }
+      break;
+    default:
+      if (address >= 0xff30 && address <= 0xff3f) {
+        wave_write_ram(ctx.ch3, address - 0xff30, value);
+      }
+      break;
   }
 }
-
-export function audio_debug_state() {
-  update_nr52();
-
-  return {
-    enabled: ctx.enabled,
-    nr50: ctx.nr50,
-    nr51: ctx.nr51,
-    nr52: ctx.nr52,
-    queued: audio_get_queued_sample_count(),
-    sample_rate: ctx.sample_rate,
-    cycles_per_sample: ctx.cycles_per_sample,
-    frame_seq_step: ctx.frame_seq_step,
-    ch1_enabled: ctx.ch1.enabled,
-    ch2_enabled: ctx.ch2.enabled,
-    ch3_enabled: ctx.ch3.enabled,
-    ch4_enabled: ctx.ch4.enabled,
-  };
-}
-
-export {
-  audio_clear_samples,
-  audio_consume_samples,
-  audio_get_queued_sample_count,
-};

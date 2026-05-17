@@ -1,7 +1,6 @@
+import { XRES, YRES } from "../common";
 import { lcd_get_context } from "../lcd";
 import {
-  XRES,
-  YRES,
   oam_entry,
   ppu_get_context,
   ppu_resolve_bg_tile_index,
@@ -12,7 +11,6 @@ const bg_line_color_id = new Uint8Array(XRES);
 
 function clear_sprite_line_buffers(): void {
   const ppu = ppu_get_context();
-
   ppu.sprite_line_color.fill(0);
   ppu.sprite_line_color_id.fill(0);
   ppu.sprite_line_priority.fill(0);
@@ -52,7 +50,6 @@ function draw_sprite_to_line(
 
   if (sprite_height === 16) {
     tile &= 0xfe;
-
     if (py >= 8) {
       tile++;
       py -= 8;
@@ -66,19 +63,10 @@ function draw_sprite_to_line(
   let start_x = sprite_x;
   let end_x = sprite_x + 8;
 
-  if (start_x < 0) {
-    start_x = 0;
-  }
-
-  if (end_x > XRES) {
-    end_x = XRES;
-  }
+  if (start_x < 0) start_x = 0;
+  if (end_x > XRES) end_x = XRES;
 
   for (let x = start_x; x < end_x; x++) {
-    if (sprite_line_color_id[x] !== 0) {
-      continue;
-    }
-
     const local_x = x - sprite_x;
     const px = x_flip ? 7 - local_x : local_x;
     const color_id = decoded_tiles[tile_row_base + px];
@@ -140,7 +128,6 @@ export function render_scanline(): void {
   ppu_update_dirty_tiles();
 
   const lcdc = lcd.lcdc;
-  const vram = ppu.vram;
   const decoded_tiles = ppu.decoded_tiles;
   const video_buffer = ppu.video_buffer;
 
@@ -151,16 +138,14 @@ export function render_scanline(): void {
   const bg_enabled = (lcdc & 0x01) !== 0;
   const obj_enabled = (lcdc & 0x02) !== 0;
   const sprite_height = (lcdc & 0x04) !== 0 ? 16 : 8;
-
-  const bg_map_base = (lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
   const signed_tile_mode = (lcdc & 0x10) === 0;
 
   const win_enabled = (lcdc & 0x20) !== 0;
   const win_map_base = (lcdc & 0x40) !== 0 ? 0x1c00 : 0x1800;
+  const bg_map_base = (lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
   const win_left = lcd.win_x - 7;
 
-  const window_visible =
-    bg_enabled && win_enabled && lcd.win_x <= 166 && lcd.win_y < YRES;
+  const window_visible = bg_enabled && win_enabled && lcd.win_x <= 166 && lcd.win_y < YRES;
 
   const line_offset = ly * XRES;
 
@@ -172,13 +157,7 @@ export function render_scanline(): void {
   let used_window = false;
 
   if (obj_enabled && ppu.line_sprite_count > 0) {
-    render_sprite_line(
-      ly,
-      sprite_height,
-      decoded_tiles,
-      sp1_colors,
-      sp2_colors,
-    );
+    render_sprite_line(ly, sprite_height, decoded_tiles, sp1_colors, sp2_colors);
   } else {
     ppu.sprite_line_color_id.fill(0);
   }
@@ -213,7 +192,7 @@ export function render_scanline(): void {
       const tile_x = pixel_x & 7;
       const tile_y = pixel_y & 7;
 
-      const tile_id = vram[map_base + tile_row * 32 + tile_col];
+      const tile_id = ppu.vram[map_base + tile_row * 32 + tile_col];
 
       const tile_index = signed_tile_mode
         ? ppu_resolve_bg_tile_index(tile_id, lcdc)

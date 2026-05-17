@@ -1,68 +1,86 @@
-import { cpu_get_context } from "@/lib/cpu/cpu";
-import { emu_cycles } from "@/lib/emu";
-import { stack_push16 } from "@/lib/stack";
+import { INT_MASK } from "./common";
+import { cpu_get_context } from "./cpu/cpu";
+import { emu_cycles } from "./emu";
+import { stack_push16 } from "./stack";
 
-export const INT_VBLANK = 0x01;
-export const INT_LCD_STAT = 0x02;
-export const INT_TIMER = 0x04;
-export const INT_SERIAL = 0x08;
-export const INT_JOYPAD = 0x10;
-
-const INTERRUPTS: ReadonlyArray<readonly [number, number]> = [
-  [INT_VBLANK, 0x40],
-  [INT_LCD_STAT, 0x48],
-  [INT_TIMER, 0x50],
-  [INT_SERIAL, 0x58],
-  [INT_JOYPAD, 0x60],
+const INTERRUPTS: [number, number][] = [
+  [0x01, 0x40],
+  [0x02, 0x48],
+  [0x04, 0x50],
+  [0x08, 0x58],
+  [0x10, 0x60],
 ];
 
-export function int_handle(address: number): void {
-  const ctx = cpu_get_context();
+let int_flags = 0;
+let ie_register = 0;
+let ime = false;
+let halted = false;
 
-  ctx.int_master_enabled = false;
-  ctx.halted = false;
-
-  // Interrupt dispatch takes 5 M-cycles on the Game Boy.
-  emu_cycles(2);
-  stack_push16(ctx.registers.PC);
-  emu_cycles(1);
-
-  ctx.registers.PC = address & 0xffff;
-
-  emu_cycles(2);
+export function int_init(): void {
+  int_flags = 0;
+  ie_register = 0;
+  ime = false;
+  halted = false;
 }
 
-export function int_check(address: number, it: number): boolean {
-  const ctx = cpu_get_context();
+export function int_get_flags(): number {
+  return int_flags & 0xff;
+}
 
-  if ((ctx.int_flags & it) === 0 || (ctx.ie_register & it) === 0) {
-    return false;
-  }
+export function int_set_flags(value: number): void {
+  int_flags = value & INT_MASK;
+}
 
-  ctx.int_flags &= ~it;
-  int_handle(address);
+export function int_request(flag: number): void {
+  int_flags |= flag & INT_MASK;
+}
 
-  return true;
+export function int_get_ie(): number {
+  return ie_register & 0xff;
+}
+
+export function int_set_ie(value: number): void {
+  ie_register = value & 0xff;
+}
+
+export function int_is_halted(): boolean {
+  return halted;
+}
+
+export function int_set_halted(h: boolean): void {
+  halted = h;
+}
+
+export function int_get_ime(): boolean {
+  return ime;
+}
+
+export function int_set_ime(val: boolean): void {
+  ime = val;
 }
 
 export function cpu_handle_interrupts(): void {
-  const ctx = cpu_get_context();
-  const pending = ctx.int_flags & ctx.ie_register & 0x1f;
+  const pending = int_flags & ie_register & INT_MASK;
 
-  if (pending === 0) {
+  if (pending === 0 || !ime) {
     return;
   }
 
-  // Any pending enabled interrupt wakes HALT, even if IME is disabled.
-  ctx.halted = false;
+  halted = false;
 
-  // But the CPU only jumps to the interrupt vector when IME is enabled.
-  if (!ctx.int_master_enabled) {
-    return;
-  }
+  for (const [flag, addr] of INTERRUPTS) {
+    if ((int_flags & flag) !== 0 && (ie_register & flag) !== 0) {
+      int_flags &= ~flag;
+      ime = false;
+      emu_cycles(2);
 
-  for (const [flag, address] of INTERRUPTS) {
-    if (int_check(address, flag)) {
+      const ctx = cpu_get_context();
+      ctx.registers.SP = stack_push16(ctx.registers.SP, ctx.registers.PC);
+      emu_cycles(1);
+
+      ctx.registers.PC = addr & 0xffff;
+      emu_cycles(2);
+
       return;
     }
   }

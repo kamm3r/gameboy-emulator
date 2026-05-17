@@ -1,92 +1,83 @@
 import { bus_read } from "@/lib/memory/bus";
 import { emu_get_context } from "@/lib/emu";
 import { gamepad_get_state } from "@/lib/input/gamepad";
-import { SCREEN_HEIGHT, SCREEN_WIDTH, XRES, YRES } from "@/lib/common";
+import { SCREEN_HEIGHT, SCREEN_WIDTH, XRES, YRES, argb_to_css, COLORS_DEFAULT } from "@/lib/common";
 import { ppu_get_context } from "@/lib/ppu/ppu";
 
 type ui_context = {
-  mainCanvas: HTMLCanvasElement | null;
-  mainCtx: CanvasRenderingContext2D | null;
-  debugCanvas: HTMLCanvasElement | null;
-  debugCtx: CanvasRenderingContext2D | null;
+  main_canvas: HTMLCanvasElement | null;
+  main_ctx: CanvasRenderingContext2D | null;
+  debug_canvas: HTMLCanvasElement | null;
+  debug_ctx: CanvasRenderingContext2D | null;
   scale: number;
   initialized: boolean;
-  imageData: ImageData | null;
+  image_data: ImageData | null;
 };
 
 const ui: ui_context = {
-  mainCanvas: null,
-  mainCtx: null,
-  debugCanvas: null,
-  debugCtx: null,
+  main_canvas: null,
+  main_ctx: null,
+  debug_canvas: null,
+  debug_ctx: null,
   scale: 4,
   initialized: false,
-  imageData: null,
+  image_data: null,
 };
 
-const tileColors = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
-
-function argb_to_css(color: number): string {
-  const a = ((color >>> 24) & 0xff) / 255;
-  const r = (color >>> 16) & 0xff;
-  const g = (color >>> 8) & 0xff;
-  const b = color & 0xff;
-
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
-}
+const tile_colors = COLORS_DEFAULT;
 
 export function ui_init(
-  mainCanvas: HTMLCanvasElement,
-  debugCanvas?: HTMLCanvasElement | null,
+  main_canvas: HTMLCanvasElement,
+  debug_canvas?: HTMLCanvasElement | null,
   scale = 4,
 ): void {
-  const mainCtx = mainCanvas.getContext("2d");
+  const main_ctx = main_canvas.getContext("2d");
 
-  if (!mainCtx) {
+  if (!main_ctx) {
     throw new Error("Failed to get main canvas 2D context");
   }
 
-  const debugCtx = debugCanvas?.getContext("2d") ?? null;
+  const debug_ctx = debug_canvas?.getContext("2d") ?? null;
 
   ui.scale = scale;
 
-  mainCanvas.width = SCREEN_WIDTH;
-  mainCanvas.height = SCREEN_HEIGHT;
-  mainCanvas.style.width = `${SCREEN_WIDTH * scale}px`;
-  mainCanvas.style.height = `${SCREEN_HEIGHT * scale}px`;
+  main_canvas.width = SCREEN_WIDTH;
+  main_canvas.height = SCREEN_HEIGHT;
+  main_canvas.style.width = `${SCREEN_WIDTH * scale}px`;
+  main_canvas.style.height = `${SCREEN_HEIGHT * scale}px`;
 
-  mainCtx.imageSmoothingEnabled = false;
+  main_ctx.imageSmoothingEnabled = false;
 
-  if (debugCanvas && debugCtx) {
-    debugCanvas.width = (16 * 8 * scale) + (16 * scale);
-    debugCanvas.height = (32 * 8 * scale) + (64 * scale);
-    debugCtx.imageSmoothingEnabled = false;
+  if (debug_canvas && debug_ctx) {
+    debug_canvas.width = (16 * 8 * scale) + (16 * scale);
+    debug_canvas.height = (32 * 8 * scale) + (64 * scale);
+    debug_ctx.imageSmoothingEnabled = false;
   }
 
-  ui.mainCanvas = mainCanvas;
-  ui.mainCtx = mainCtx;
-  ui.debugCanvas = debugCanvas ?? null;
-  ui.debugCtx = debugCtx;
-  ui.imageData = new ImageData(XRES, YRES);
+  ui.main_canvas = main_canvas;
+  ui.main_ctx = main_ctx;
+  ui.debug_canvas = debug_canvas ?? null;
+  ui.debug_ctx = debug_ctx;
+  ui.image_data = new ImageData(XRES, YRES);
   ui.initialized = true;
 
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("keydown", on_key_down);
+  window.addEventListener("keyup", on_key_up);
 }
 
 export function ui_destroy(): void {
-  window.removeEventListener("keydown", onKeyDown);
-  window.removeEventListener("keyup", onKeyUp);
+  window.removeEventListener("keydown", on_key_down);
+  window.removeEventListener("keyup", on_key_up);
 
-  ui.mainCanvas = null;
-  ui.mainCtx = null;
-  ui.debugCanvas = null;
-  ui.debugCtx = null;
-  ui.imageData = null;
+  ui.main_canvas = null;
+  ui.main_ctx = null;
+  ui.debug_canvas = null;
+  ui.debug_ctx = null;
+  ui.image_data = null;
   ui.initialized = false;
 }
 
-function fillRect(
+function fill_rect(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -100,93 +91,91 @@ function fillRect(
 
 function display_tile(
   ctx: CanvasRenderingContext2D,
-  startLocation: number,
-  tileNum: number,
+  start_location: number,
+  tile_num: number,
   x: number,
   y: number,
 ): void {
-  for (let tileY = 0; tileY < 16; tileY += 2) {
-    const b1 = bus_read(startLocation + (tileNum * 16) + tileY);
-    const b2 = bus_read(startLocation + (tileNum * 16) + tileY + 1);
+  const scale = ui.scale;
+
+  for (let tile_y = 0; tile_y < 16; tile_y += 2) {
+    const b1 = bus_read(start_location + (tile_num * 16) + tile_y);
+    const b2 = bus_read(start_location + (tile_num * 16) + tile_y + 1);
+
+    const row_y = y + ((tile_y / 2) * scale);
 
     for (let bit = 7; bit >= 0; bit--) {
-      const hi = Number(Boolean(b1 & (1 << bit))) << 1;
-      const lo = Number(Boolean(b2 & (1 << bit)));
+      const hi = ((b1 >> bit) & 1) << 1;
+      const lo = (b2 >> bit) & 1;
       const color = hi | lo;
 
-      const px = x + ((7 - bit) * ui.scale);
-      const py = y + ((tileY / 2) * ui.scale);
+      const px = x + ((7 - bit) * scale);
 
-      fillRect(ctx, px, py, ui.scale, ui.scale, tileColors[color]);
+      fill_rect(ctx, px, row_y, scale, scale, tile_colors[color]);
     }
   }
 }
 
 function update_dbg_window(): void {
-  if (!ui.debugCtx || !ui.debugCanvas) {
+  if (!ui.debug_ctx || !ui.debug_canvas) {
     return;
   }
 
-  ui.debugCtx.fillStyle = "#111111";
-  ui.debugCtx.fillRect(0, 0, ui.debugCanvas.width, ui.debugCanvas.height);
+  ui.debug_ctx.fillStyle = "#111111";
+  ui.debug_ctx.fillRect(0, 0, ui.debug_canvas.width, ui.debug_canvas.height);
 
-  let xDraw = 0;
-  let yDraw = 0;
-  let tileNum = 0;
-
+  const scale = ui.scale;
   const addr = 0x8000;
+  let x_draw = 0;
+  let y_draw = 0;
+  let tile_num = 0;
 
   for (let y = 0; y < 24; y++) {
     for (let x = 0; x < 16; x++) {
       display_tile(
-        ui.debugCtx,
+        ui.debug_ctx,
         addr,
-        tileNum,
-        xDraw + (x * ui.scale),
-        yDraw + (y * ui.scale),
+        tile_num,
+        x_draw + (x * scale),
+        y_draw + (y * scale),
       );
 
-      xDraw += 8 * ui.scale;
-      tileNum++;
+      x_draw += 8 * scale;
+      tile_num++;
     }
 
-    yDraw += 8 * ui.scale;
-    xDraw = 0;
+    y_draw += 8 * scale;
+    x_draw = 0;
   }
 }
 
 export function ui_update(): void {
-  if (!ui.initialized || !ui.mainCtx || !ui.imageData) {
+  if (!ui.initialized || !ui.main_ctx || !ui.image_data) {
     return;
   }
 
-  const videoBuffer = ppu_get_context().video_buffer;
-  const data = ui.imageData.data;
+  const video_buffer = ppu_get_context().video_buffer;
+  const data = ui.image_data.data;
 
-  for (let i = 0; i < videoBuffer.length; i++) {
-    const color = videoBuffer[i] >>> 0;
-
-    const a = (color >>> 24) & 0xff;
-    const r = (color >>> 16) & 0xff;
-    const g = (color >>> 8) & 0xff;
-    const b = color & 0xff;
+  for (let i = 0; i < video_buffer.length; i++) {
+    const color = video_buffer[i] >>> 0;
 
     const j = i * 4;
-    data[j + 0] = r;
-    data[j + 1] = g;
-    data[j + 2] = b;
-    data[j + 3] = a;
+    data[j + 0] = (color >>> 16) & 0xff;
+    data[j + 1] = (color >>> 8) & 0xff;
+    data[j + 2] = color & 0xff;
+    data[j + 3] = (color >>> 24) & 0xff;
   }
 
-  ui.mainCtx.putImageData(ui.imageData, 0, 0);
+  ui.main_ctx.putImageData(ui.image_data, 0, 0);
 
   update_dbg_window();
 }
 
-function ui_on_key(down: boolean, keyCode: string): void {
+function ui_on_key(down: boolean, key_code: string): void {
   const pad = gamepad_get_state();
 
-  switch (keyCode) {
+  switch (key_code) {
     case "KeyZ":
       pad.b = down;
       break;
@@ -214,7 +203,7 @@ function ui_on_key(down: boolean, keyCode: string): void {
   }
 }
 
-function shouldPreventDefault(code: string): boolean {
+function should_prevent_default(code: string): boolean {
   return (
     code === "Tab" ||
     code === "ArrowUp" ||
@@ -224,16 +213,16 @@ function shouldPreventDefault(code: string): boolean {
   );
 }
 
-function onKeyDown(e: KeyboardEvent): void {
-  if (shouldPreventDefault(e.code)) {
+function on_key_down(e: KeyboardEvent): void {
+  if (should_prevent_default(e.code)) {
     e.preventDefault();
   }
 
   ui_on_key(true, e.code);
 }
 
-function onKeyUp(e: KeyboardEvent): void {
-  if (shouldPreventDefault(e.code)) {
+function on_key_up(e: KeyboardEvent): void {
+  if (should_prevent_default(e.code)) {
     e.preventDefault();
   }
 

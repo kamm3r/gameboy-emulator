@@ -1,36 +1,23 @@
-import { bus_read, bus_write } from "@/lib/memory/bus";
+let message = "";
 
-const DBG_MSG_SIZE = 1024;
-
-const dbg_msg = new Uint8Array(DBG_MSG_SIZE);
-let msg_size = 0;
-
-export function dbg_update(): void {
-    if (bus_read(0xff02) === 0x81) {
-        const c = bus_read(0xff01);
-
-        if (msg_size < DBG_MSG_SIZE) {
-          dbg_msg[msg_size++] = c;
-        }
-
-        bus_write(0xff02, 0);
-    }
+export function dbg_clear(): void {
+  message = "";
 }
 
-export function dbg_print(): void {
-   if (dbg_msg[0]){
-    console.log(`DBG: ${dbg_msg}\n`)
-   }
+export function dbg_write(char: number): void {
+  if (char >= 0x20 && char <= 0x7e) {
+    message += String.fromCharCode(char);
+  }
 }
 
 export function dbg_get_message(): string {
-  let out = "";
-  for (let i = 0; i < msg_size; i++) {
-    out += String.fromCharCode(dbg_msg[i]);
-  }
-  return out;
+  return message;
 }
 
-export function dbg_clear(): void {
-  msg_size = 0;
+export function dbg_update(): void {
+  // stub - serial output handled in bus
+}
+
+export function dbg_print(): void {
+  // stub
 }

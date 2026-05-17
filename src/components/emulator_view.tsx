@@ -6,6 +6,8 @@ import {
   emu_resume,
   emu_start,
   emu_stop,
+  emu_subscribe,
+  emu_subscribe_render,
 } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
 import { gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
@@ -175,6 +177,7 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
 
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
+  const ui_initialized_ref = useRef(false);
 
   const [show_debug, set_show_debug] = useState(false);
 
@@ -202,15 +205,23 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
     debug_canvas!.height = 192;
 
     ui_init(canvas, debug_canvas, 2);
+    ui_initialized_ref.current = true;
 
     return () => {
       ui_destroy();
+      ui_initialized_ref.current = false;
     };
   }, []);
 
   useEffect(() => {
-    ui_update();
-  }, [emu.current_frame]);
+    if (!ui_initialized_ref.current) return;
+
+    const unsub = emu_subscribe_render(() => {
+      ui_update();
+    });
+
+    return unsub;
+  }, []);
 
   const has_rom = Boolean(rom_name);
   const can_start = has_rom && !emu.running;

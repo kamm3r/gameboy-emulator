@@ -1,54 +1,21 @@
-import { formatter } from "@/lib/common";
+const WRAM_SIZE = 0x2000;
+const HRAM_SIZE = 0x80;
 
-export type ram_context = {
-  wram: Uint8Array;
-  hram: Uint8Array;
-};
+const wram = new Uint8Array(WRAM_SIZE);
+const hram = new Uint8Array(HRAM_SIZE);
 
-const ctx: ram_context = {
-  wram: new Uint8Array(0x2000),
-  hram: new Uint8Array(0x80),
-};
-
-export function wram_read(address: number): number {
-  address -= 0xc000;
-  if (address < 0 || address >= 0x2000) {
-    console.log(formatter("INVALID WRAM ADDRESS %08X\n", address + 0xc000));
-    return 0xff;
-  }
-  return ctx.wram[address];
+export function wram_read(offset: number): number {
+  return wram[offset & (WRAM_SIZE - 1)];
 }
 
-export function wram_write(address: number, value: number): void {
-  address -= 0xc000;
-
-  ctx.wram[address] = value;
+export function wram_write(offset: number, value: number): void {
+  wram[offset & (WRAM_SIZE - 1)] = value & 0xff;
 }
 
-export function hram_read(address: number): number {
-  address -= 0xff80;
-
-  return ctx.hram[address];
+export function hram_read(offset: number): number {
+  return hram[offset & (HRAM_SIZE - 1)];
 }
 
-export function hram_write(address: number, value: number): void {
-  address -= 0xff80;
-
-  ctx.hram[address] = value;
-}
-
-export function wram_read_offset(offset: number): number {
-  return ctx.wram[offset & 0x1fff];
-}
-
-export function wram_write_offset(offset: number, value: number): void {
-  ctx.wram[offset & 0x1fff] = value & 0xff;
-}
-
-export function hram_read_offset(offset: number): number {
-  return ctx.hram[offset & 0x7f];
-}
-
-export function hram_write_offset(offset: number, value: number): void {
-  ctx.hram[offset & 0x7f] = value & 0xff;
+export function hram_write(offset: number, value: number): void {
+  hram[offset & (HRAM_SIZE - 1)] = value & 0xff;
 }

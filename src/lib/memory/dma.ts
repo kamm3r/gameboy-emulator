@@ -1,57 +1,69 @@
-import { bus_read } from "@/lib/memory/bus";
-import { ppu_oam_write } from "@/lib/ppu/ppu";
-
 type dma_context = {
   active: boolean;
   byte: number;
-  value: number;
+  source_base: number;
   start_delay: number;
 };
 
 const ctx: dma_context = {
   active: false,
   byte: 0,
-  value: 0,
+  source_base: 0,
   start_delay: 0,
 };
+
+let bus_read_fn: (addr: number) => number;
+let oam_write_fn: (addr: number, val: number) => void;
+
+export function dma_init(
+  bus_reader: (addr: number) => number,
+  oam_writer: (addr: number, val: number) => void,
+): void {
+  ctx.active = false;
+  ctx.byte = 0;
+  ctx.source_base = 0;
+  ctx.start_delay = 0;
+  bus_read_fn = bus_reader;
+  oam_write_fn = oam_writer;
+}
 
 export function dma_start(start: number): void {
   ctx.active = true;
   ctx.byte = 0;
+  ctx.source_base = (start & 0xff) << 8;
   ctx.start_delay = 2;
-  ctx.value = start & 0xff;
 }
 
 export function dma_tick_batch(m_cycles: number): void {
-  while (m_cycles > 0 && ctx.active) {
-    if (ctx.start_delay > 0) {
-      const step = Math.min(m_cycles, ctx.start_delay);
+  if (!ctx.active || m_cycles <= 0) {
+    return;
+  }
 
-      ctx.start_delay -= step;
-      m_cycles -= step;
-      continue;
-    }
-
-    const remaining_bytes = 0xa0 - ctx.byte;
-    const step = Math.min(m_cycles, remaining_bytes);
-    const source_base = ctx.value << 8;
-
-    for (let i = 0; i < step; i++) {
-      const byte = ctx.byte;
-
-      ppu_oam_write(0xfe00 + byte, bus_read(source_base + byte));
-      ctx.byte = byte + 1;
-    }
-
+  if (ctx.start_delay > 0) {
+    const step = m_cycles < ctx.start_delay ? m_cycles : ctx.start_delay;
+    ctx.start_delay -= step;
     m_cycles -= step;
-    ctx.active = ctx.byte < 0xa0;
+    if (m_cycles <= 0) {
+      return;
+    }
+  }
+
+  const remaining = 0xa0 - ctx.byte;
+  const step = m_cycles < remaining ? m_cycles : remaining;
+  const source = ctx.source_base;
+  let byte = ctx.byte;
+
+  for (let i = 0; i < step; i++, byte++) {
+    oam_write_fn(0xfe00 + byte, bus_read_fn(source + byte));
+  }
+
+  ctx.byte = byte;
+
+  if (ctx.byte >= 0xa0) {
+    ctx.active = false;
   }
 }
 
-export function dma_tick(): void {
-  dma_tick_batch(1);
-}
-
-export function dma_transferring(): boolean {
+export function dma_is_active(): boolean {
   return ctx.active;
 }

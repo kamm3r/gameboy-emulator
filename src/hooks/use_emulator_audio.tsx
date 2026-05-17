@@ -14,11 +14,11 @@ import { emu_set_audio_pump } from "@/lib/emu";
 const GAIN_VALUE = 0.35;
 
 // Keep about this much audio queued inside the AudioWorklet.
-const TARGET_WORKLET_BUFFER_SECONDS = 0.1;
+// Increased for more headroom against main-thread jank.
+const TARGET_WORKLET_BUFFER_SECONDS = 0.15;
 
-// Main-thread pump interval. AudioWorklet renders every ~2.67ms at 48kHz,
-// so feeding every 8ms is stable without being too spammy.
-const PUMP_INTERVAL_MS = 8;
+// Main-thread pump interval. Using rAF for more reliable timing.
+const PUMP_INTERVAL_MS = 16;
 
 type WorkletStatus = {
   type: "status";
@@ -34,6 +34,7 @@ export function useEmulatorAudio() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
+  const pumpRef = useRef<number | null>(null);
 
   const workletAvailableRef = useRef(0);
   const workletUnderflowsRef = useRef(0);
@@ -85,11 +86,24 @@ export function useEmulatorAudio() {
   }, [pumpSamples]);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      pumpSamples();
-    }, PUMP_INTERVAL_MS);
+    // Use rAF-based pumping for more reliable timing
+    let running = true;
 
-    return () => window.clearInterval(id);
+    function pumpLoop() {
+      if (!running) return;
+      pumpSamples();
+      pumpRef.current = window.setTimeout(pumpLoop, PUMP_INTERVAL_MS);
+    }
+
+    pumpLoop();
+
+    return () => {
+      running = false;
+      if (pumpRef.current !== null) {
+        clearTimeout(pumpRef.current);
+        pumpRef.current = null;
+      }
+    };
   }, [pumpSamples]);
 
   useEffect(() => {
@@ -160,9 +174,8 @@ export function useEmulatorAudio() {
 
         audio_set_sample_rate(audioCtx.sampleRate);
 
-        // Queue in emulator side. This is not all sent to the worklet at once;
-        // pumpSamples() only sends enough to maintain target worklet latency.
-        audio_set_max_buffered_samples(Math.floor(audioCtx.sampleRate * 0.5));
+        // Queue in emulator side. Increased buffer for more headroom against main-thread jank.
+        audio_set_max_buffered_samples(Math.floor(audioCtx.sampleRate * 1.0));
 
         const resume = async () => {
           if (audioCtx.state === "suspended") {

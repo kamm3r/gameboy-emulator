@@ -9,28 +9,27 @@ import {
   emu_load_rom,
   emu_stop,
   emu_get_context,
+  emu_cycles,
 } from "../src/lib/emu.js";
 
-const TEST_ROMS = [
-  "01-special.gb",
-  "02-interrupts.gb",
-  "03-op sp,hl.gb",
-  "04-op r,imm.gb",
-  "05-op rp.gb",
-  "06-ld r,r.gb",
-  "07-jr,jp,call,ret,rst.gb",
-  "08-misc instrs.gb",
-  "09-op r,r.gb",
-  "10-bit ops.gb",
-  "11-op a,(hl).gb",
-  "cpu_instrs.gb",
-  "dmg-acid2.gb",
-  "mem_timing.gb",
+const AUDIO_TEST_ROMS = [
+  "blargg/cgb_sound/rom_singles/01-registers.gb",
+  "blargg/cgb_sound/rom_singles/02-len ctr.gb",
+  "blargg/cgb_sound/rom_singles/03-trigger.gb",
+  "blargg/cgb_sound/rom_singles/04-sweep.gb",
+  "blargg/cgb_sound/rom_singles/05-sweep details.gb",
+  "blargg/cgb_sound/rom_singles/06-overflow on trigger.gb",
+  "blargg/cgb_sound/rom_singles/07-len sweep period sync.gb",
+  "blargg/cgb_sound/rom_singles/08-len ctr during power.gb",
+  "blargg/cgb_sound/rom_singles/09-wave read while on.gb",
+  "blargg/cgb_sound/rom_singles/10-wave trigger while on.gb",
+  "blargg/cgb_sound/rom_singles/11-regs after power.gb",
+  "blargg/cgb_sound/rom_singles/12-wave.gb",
 ];
 
 function runEmulator(
   romPath: string,
-  maxCycles: number = 2_000_000,
+  maxCycles: number = 20_000_000,
 ): { passed: boolean; output: string; cycles: number; debugInfo: string } {
   const buffer = fs.readFileSync(romPath);
   const data = new Uint8Array(buffer);
@@ -64,13 +63,13 @@ function runEmulator(
     const stepsPerFrame = Math.floor(cyclesPerFrame / 4);
     for (let i = 0; i < stepsPerFrame; i++) {
       const serialCtrl = bus_read(0xff02);
-      if ((serialCtrl & 0x81) === 0x81) {
+      if ((serialCtrl & 0x80) !== 0) {
         const c = bus_read(0xff01);
         serialWriteCount++;
-        if (serialWrites.length < 200) {
+        if (serialWrites.length < 500) {
           serialWrites.push(c);
         }
-        bus_write(0xff02, 0);
+        bus_write(0xff02, serialCtrl & 0x7f);
       }
 
       if (!cpu_step()) {
@@ -81,7 +80,7 @@ function runEmulator(
       cycles++;
     }
 
-    if (serialWriteCount > 100) {
+    if (serialWriteCount > 200) {
       break;
     }
   }
@@ -103,7 +102,7 @@ function runEmulator(
   return { passed, output: finalOutput, cycles, debugInfo };
 }
 
-for (const rom of TEST_ROMS) {
+for (const rom of AUDIO_TEST_ROMS) {
   test(rom, () => {
     const romPath = path.join(process.cwd(), "roms", rom);
     const result = runEmulator(romPath);
@@ -112,11 +111,11 @@ for (const rom of TEST_ROMS) {
       `\n${rom}: cycles=${result.cycles}, output length=${result.output.length}`,
     );
     console.log("Debug:", result.debugInfo);
-    console.log("Output:", result.output);
+    console.log("Output:", result.output.substring(0, 200));
 
     expect(
       result.passed,
-      `ROM ${rom} failed: ${result.debugInfo} - ${result.output}`,
+      `ROM ${rom} failed: ${result.debugInfo} - ${result.output.substring(0, 200)}`,
     ).toBe(true);
   });
 }

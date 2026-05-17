@@ -1,149 +1,126 @@
-import { ctx } from "./state";
+import { wave_state } from "./state";
 
-export function ch3_dac_on(nr30: number): boolean {
-  return (nr30 & 0x80) !== 0;
+export function wave_init(): wave_state {
+  return {
+    enabled: false,
+    dac: false,
+    length: 0,
+    length_enable: false,
+    length_counter: 256,
+    volume_code: 0,
+    frequency: 0,
+    freq_divider: 0,
+    sample_buffer: 0,
+    position: 0,
+    wave_ram: new Uint8Array(16),
+  };
 }
 
-export function wave_timer_reload(period_value: number): number {
-  return (2048 - (period_value & 0x7ff)) * 2;
-}
+export function wave_trigger(w: wave_state): void {
+  w.enabled = true;
+  w.freq_divider = (2048 - w.frequency) * 2;
+  w.position = 0;
 
-function wave_accessible(): boolean {
-  return ctx.ch3.access_countdown > 0;
-}
-
-function fetch_wave_sample(): void {
-  const ch = ctx.ch3;
-  const sample_index = ch.wave_pos & 31;
-  const byte_index = (sample_index >> 1) & 0x0f;
-  const byte = ctx.wave_ram[byte_index];
-
-  ch.last_read_byte = byte_index;
-  ch.access_countdown = 2;
-
-  if ((sample_index & 1) === 0) {
-    ch.sample_latch = (byte >> 4) & 0x0f;
-  } else {
-    ch.sample_latch = byte & 0x0f;
-  }
-
-  ch.wave_pos = (ch.wave_pos + 1) & 31;
-}
-
-function wave_corrupt_on_retrigger(): void {
-  const ch = ctx.ch3;
-
-  if (!ch.enabled) {
-    return;
-  }
-
-  if (ch.freq_timer > 2) {
-    return;
-  }
-
-  const pos = ch.wave_pos & 31;
-
-  if (pos < 8) {
-    ctx.wave_ram[0] = ctx.wave_ram[(pos >> 1) & 0x0f];
-    return;
-  }
-
-  const base = ((pos >> 1) & 0x0c) & 0x0f;
-
-  ctx.wave_ram[0] = ctx.wave_ram[base];
-  ctx.wave_ram[1] = ctx.wave_ram[(base + 1) & 0x0f];
-  ctx.wave_ram[2] = ctx.wave_ram[(base + 2) & 0x0f];
-  ctx.wave_ram[3] = ctx.wave_ram[(base + 3) & 0x0f];
-}
-
-export function wave_ram_read(index: number): number {
-  const ch = ctx.ch3;
-  const i = index & 0x0f;
-
-  if (!ch.enabled) {
-    return ctx.wave_ram[i];
-  }
-
-  if (wave_accessible()) {
-    return ctx.wave_ram[ch.last_read_byte & 0x0f];
-  }
-
-  return 0xff;
-}
-
-export function wave_ram_write(index: number, value: number): void {
-  const ch = ctx.ch3;
-  const i = index & 0x0f;
-  const v = value & 0xff;
-
-  if (!ch.enabled) {
-    ctx.wave_ram[i] = v;
-    return;
-  }
-
-  if (wave_accessible()) {
-    ctx.wave_ram[ch.last_read_byte & 0x0f] = v;
+  if (w.length_counter === 0) {
+    w.length_counter = 256;
   }
 }
 
-export function trigger_wave(): void {
-  const ch = ctx.ch3;
+export function wave_clock_length(w: wave_state): void {
+  if (w.length_enable && w.length_counter > 0) {
+    w.length_counter--;
 
-  wave_corrupt_on_retrigger();
-
-  ch.enabled = ch.dac_enabled;
-
-  if (!ch.enabled) {
-    return;
+    if (w.length_counter === 0) {
+      w.enabled = false;
+    }
   }
-
-  ch.freq_timer = wave_timer_reload(ch.period_value);
-  ch.wave_pos = 0;
-  ch.sample_latch = 0;
-  ch.access_countdown = 0;
 }
 
-export function wave_output(): number {
-  const ch = ctx.ch3;
-
-  if (!ch.enabled || !ch.dac_enabled) {
+export function wave_sample(w: wave_state): number {
+  if (!w.enabled || !w.dac) {
     return 0;
   }
 
-  let sample = ch.sample_latch & 0x0f;
+  const raw = w.sample_buffer;
+  let amp: number;
 
-  switch (ch.volume_code) {
-    case 0:
-      sample = 0;
-      break;
-    case 1:
-      break;
-    case 2:
-      sample >>= 1;
-      break;
-    case 3:
-      sample >>= 2;
-      break;
+  switch (w.volume_code) {
+    case 0: return 0;
+    case 1: amp = raw; break;
+    case 2: amp = raw >> 1; break;
+    case 3: amp = raw >> 2; break;
+    default: amp = raw; break;
   }
 
-  return sample / 7.5 - 1.0;
+  return (amp / 7.5) - 1;
 }
 
-export function tick_wave(): void {
-  const ch = ctx.ch3;
+export function wave_tick(w: wave_state): void {
+  w.freq_divider--;
 
-  if (ch.access_countdown > 0) {
-    ch.access_countdown--;
+  if (w.freq_divider <= 0) {
+    w.freq_divider = (2048 - w.frequency) * 2;
+    w.position = (w.position + 1) & 31;
+
+    const byte = w.wave_ram[w.position >> 1];
+    w.sample_buffer = (w.position & 1) === 0 ? (byte >> 4) & 0x0f : byte & 0x0f;
   }
+}
 
-  if (!ch.enabled) {
-    return;
+export function wave_write_nr0(w: wave_state, value: number): void {
+  w.dac = (value & 0x80) !== 0;
+
+  if (!w.dac) {
+    w.enabled = false;
   }
+}
 
-  ch.freq_timer--;
+export function wave_write_nr1(w: wave_state, value: number): void {
+  w.length = 256 - value;
+  w.length_counter = 256 - value;
+}
 
-  if (ch.freq_timer <= 0) {
-    ch.freq_timer += wave_timer_reload(ch.period_value);
-    fetch_wave_sample();
+export function wave_write_nr2(w: wave_state, value: number): void {
+  w.volume_code = (value >> 5) & 0x03;
+}
+
+export function wave_write_nr3(w: wave_state, value: number): void {
+  w.frequency = (w.frequency & 0x0700) | value;
+}
+
+export function wave_write_nr4(w: wave_state, value: number): void {
+  w.frequency = ((value & 0x07) << 8) | (w.frequency & 0x00ff);
+  w.length_enable = (value & 0x40) !== 0;
+
+  if ((value & 0x80) !== 0) {
+    wave_trigger(w);
   }
+}
+
+export function wave_read_nr0(w: wave_state): number {
+  return w.dac ? 0x80 : 0x00;
+}
+
+export function wave_read_nr1(): number {
+  return 0xff;
+}
+
+export function wave_read_nr2(w: wave_state): number {
+  return (w.volume_code << 5) | 0x9f;
+}
+
+export function wave_read_nr3(): number {
+  return 0xff;
+}
+
+export function wave_read_nr4(w: wave_state): number {
+  return (w.length_enable ? 0x40 : 0) | 0xbf;
+}
+
+export function wave_read_ram(w: wave_state, address: number): number {
+  return w.wave_ram[address & 0x0f];
+}
+
+export function wave_write_ram(w: wave_state, address: number, value: number): void {
+  w.wave_ram[address & 0x0f] = value & 0xff;
 }

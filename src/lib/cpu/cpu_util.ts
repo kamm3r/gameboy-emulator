@@ -1,180 +1,81 @@
-import { bus_read, bus_write } from "@/lib/memory/bus";
-import { type cpu_context } from "@/lib/cpu/cpu";
-import { type RegType } from "@/lib/cpu/instructions";
-
-export function reverse(value: number): number {
-  value &= 0xffff;
-  return ((value & 0xff) << 8) | (value >>> 8);
-}
+import { cpu_context, cpu_registers } from "./cpu";
+import { bus_read, bus_write } from "../memory/bus";
+import { RegType } from "./instructions";
 
 export function cpu_read_register(ctx: cpu_context, reg: RegType): number {
   const r = ctx.registers;
 
   switch (reg) {
-    case "RT_A":
-      return r.A & 0xff;
-    case "RT_F":
-      return r.F & 0xf0;
-    case "RT_B":
-      return r.B & 0xff;
-    case "RT_C":
-      return r.C & 0xff;
-    case "RT_D":
-      return r.D & 0xff;
-    case "RT_E":
-      return r.E & 0xff;
-    case "RT_H":
-      return r.H & 0xff;
-    case "RT_L":
-      return r.L & 0xff;
-
-    case "RT_AF":
-      return ((r.A & 0xff) << 8) | (r.F & 0xf0);
-    case "RT_BC":
-      return ((r.B & 0xff) << 8) | (r.C & 0xff);
-    case "RT_DE":
-      return ((r.D & 0xff) << 8) | (r.E & 0xff);
-    case "RT_HL":
-      return ((r.H & 0xff) << 8) | (r.L & 0xff);
-
-    case "RT_PC":
-      return r.PC & 0xffff;
-    case "RT_SP":
-      return r.SP & 0xffff;
-
-    case "RT_NONE":
-    default:
-      return 0;
+    case "RT_A":  return r.A;
+    case "RT_F":  return r.F;
+    case "RT_AF": return (r.A << 8) | r.F;
+    case "RT_B":  return r.B;
+    case "RT_C":  return r.C;
+    case "RT_BC": return (r.B << 8) | r.C;
+    case "RT_D":  return r.D;
+    case "RT_E":  return r.E;
+    case "RT_DE": return (r.D << 8) | r.E;
+    case "RT_H":  return r.H;
+    case "RT_L":  return r.L;
+    case "RT_HL": return (r.H << 8) | r.L;
+    case "RT_SP": return r.SP;
+    case "RT_PC": return r.PC;
+    default:      return 0;
   }
 }
 
-export function cpu_set_register(
-  ctx: cpu_context,
-  reg: RegType,
-  value: number,
-): void {
+export function cpu_set_register(ctx: cpu_context, reg: RegType, value: number): void {
   const r = ctx.registers;
   value &= 0xffff;
 
   switch (reg) {
-    case "RT_A":
-      r.A = value & 0xff;
-      return;
-    case "RT_F":
-      r.F = value & 0xf0;
-      return;
-    case "RT_B":
-      r.B = value & 0xff;
-      return;
-    case "RT_C":
-      r.C = value & 0xff;
-      return;
-    case "RT_D":
-      r.D = value & 0xff;
-      return;
-    case "RT_E":
-      r.E = value & 0xff;
-      return;
-    case "RT_H":
-      r.H = value & 0xff;
-      return;
-    case "RT_L":
-      r.L = value & 0xff;
-      return;
-
-    case "RT_AF":
-      r.A = value >>> 8;
-      r.F = value & 0xf0;
-      return;
-    case "RT_BC":
-      r.B = value >>> 8;
-      r.C = value & 0xff;
-      return;
-    case "RT_DE":
-      r.D = value >>> 8;
-      r.E = value & 0xff;
-      return;
-    case "RT_HL":
-      r.H = value >>> 8;
-      r.L = value & 0xff;
-      return;
-
-    case "RT_PC":
-      r.PC = value;
-      return;
-    case "RT_SP":
-      r.SP = value;
-      return;
-
-    case "RT_NONE":
-      return;
+    case "RT_A":  r.A = value & 0xff; break;
+    case "RT_F":  r.F = value & 0xf0; break;
+    case "RT_AF": r.A = (value >> 8) & 0xff; r.F = value & 0xf0; break;
+    case "RT_B":  r.B = value & 0xff; break;
+    case "RT_C":  r.C = value & 0xff; break;
+    case "RT_BC": r.B = (value >> 8) & 0xff; r.C = value & 0xff; break;
+    case "RT_D":  r.D = value & 0xff; break;
+    case "RT_E":  r.E = value & 0xff; break;
+    case "RT_DE": r.D = (value >> 8) & 0xff; r.E = value & 0xff; break;
+    case "RT_H":  r.H = value & 0xff; break;
+    case "RT_L":  r.L = value & 0xff; break;
+    case "RT_HL": r.H = (value >> 8) & 0xff; r.L = value & 0xff; break;
+    case "RT_SP": r.SP = value & 0xffff; break;
+    case "RT_PC": r.PC = value & 0xffff; break;
   }
 }
 
 export function cpu_read_register8(ctx: cpu_context, reg: RegType): number {
-  const r = ctx.registers;
+  if (reg === "RT_HL") {
+    return bus_read(cpu_read_register(ctx, "RT_HL"));
+  }
+  return cpu_read_register(ctx, reg);
+}
 
-  switch (reg) {
-    case "RT_A":
-      return r.A & 0xff;
-    case "RT_F":
-      return r.F & 0xf0;
-    case "RT_B":
-      return r.B & 0xff;
-    case "RT_C":
-      return r.C & 0xff;
-    case "RT_D":
-      return r.D & 0xff;
-    case "RT_E":
-      return r.E & 0xff;
-    case "RT_H":
-      return r.H & 0xff;
-    case "RT_L":
-      return r.L & 0xff;
-    case "RT_HL":
-      return bus_read(((r.H & 0xff) << 8) | (r.L & 0xff)) & 0xff;
-    default:
-      throw new Error(`ERR INVALID REG8: ${String(reg)}`);
+export function cpu_write_register8(ctx: cpu_context, reg: RegType, value: number): void {
+  value &= 0xff;
+
+  if (reg === "RT_HL") {
+    bus_write(cpu_read_register(ctx, "RT_HL"), value);
+  } else {
+    cpu_set_register(ctx, reg, value);
   }
 }
 
-export function cpu_set_register8(
+export function cpu_set_flags(
   ctx: cpu_context,
-  reg: RegType,
-  value: number,
+  z: number,
+  n: number,
+  h: number,
+  c: number,
 ): void {
-  const r = ctx.registers;
-  value &= 0xff;
+  let f = ctx.registers.F & 0xf0;
 
-  switch (reg) {
-    case "RT_A":
-      r.A = value;
-      return;
-    case "RT_F":
-      r.F = value & 0xf0;
-      return;
-    case "RT_B":
-      r.B = value;
-      return;
-    case "RT_C":
-      r.C = value;
-      return;
-    case "RT_D":
-      r.D = value;
-      return;
-    case "RT_E":
-      r.E = value;
-      return;
-    case "RT_H":
-      r.H = value;
-      return;
-    case "RT_L":
-      r.L = value;
-      return;
-    case "RT_HL":
-      bus_write(((r.H & 0xff) << 8) | (r.L & 0xff), value);
-      return;
-    default:
-      throw new Error(`ERR INVALID REG8: ${String(reg)}`);
-  }
+  if (z !== -1) f = z ? f | 0x80 : f & 0x7f;
+  if (n !== -1) f = n ? f | 0x40 : f & 0xbf;
+  if (h !== -1) f = h ? f | 0x20 : f & 0xdf;
+  if (c !== -1) f = c ? f | 0x10 : f & 0xef;
+
+  ctx.registers.F = f & 0xf0;
 }
