@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { gamepad_set_button } from "@/lib/input/gamepad";
-import { keybind_map, load_keybinds, save_keybinds } from "@/lib/input/keybinds";
+import { type keybind_map, load_keybinds, save_keybinds } from "@/lib/input/keybinds";
 
 export function useKeybinds() {
   const [keybinds, set_keybinds_state] = useState<keybind_map>(() =>

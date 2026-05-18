@@ -5,7 +5,7 @@ import {
   GAMEPAD_BUTTONS,
   format_key_code,
   get_key_for_button,
-  keybind_map,
+  type keybind_map,
   reset_keybinds,
   set_keybind_for_button,
 } from "@/lib/input/keybinds";

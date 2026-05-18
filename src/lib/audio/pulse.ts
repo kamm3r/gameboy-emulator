@@ -1,177 +1,133 @@
-import { DUTY_PATTERNS } from "./constants";
-import { pulse_state } from "./state";
+import { DUTY_PATTERNS } from "../common";
+import { ctx, type pulse_channel } from "./state";
 
-export function pulse_init(): pulse_state {
-  return {
-    enabled: false,
-    dac: false,
-    duty: 0,
-    duty_pos: 0,
-    length: 64,
-    length_enable: false,
-    length_counter: 64,
-    volume: 0,
-    volume_initial: 0,
-    volume_dir: 0,
-    volume_period: 0,
-    volume_counter: 0,
-    frequency: 0,
-    freq_divider: 0,
-    sweep_period: 0,
-    sweep_counter: 0,
-    sweep_dir: 0,
-    sweep_shift: 0,
-    sweep_enabled: false,
-  };
+const MAX_PERIOD = 0x7ff;
+
+export function envelope_dac_on(nrx2: number): boolean {
+  return (nrx2 & 0xf8) !== 0;
 }
 
-export function pulse_trigger(p: pulse_state, ch: number): void {
-  p.enabled = true;
-  p.freq_divider = (2048 - p.frequency) * 4;
-
-  p.volume = p.volume_initial;
-  p.volume_counter = p.volume_period;
-
-  if (p.length_counter === 0) {
-    p.length_counter = ch === 1 ? 64 : 64;
-  }
-
-  if (p.sweep_shift > 0 && ch === 1) {
-    p.sweep_enabled = true;
-    p.sweep_counter = p.sweep_period;
-  }
+export function pulse_timer_reload(period_value: number): number {
+  return (2048 - (period_value & MAX_PERIOD)) * 4;
 }
 
-export function pulse_clock_length(p: pulse_state): void {
-  if (p.length_enable && p.length_counter > 0) {
-    p.length_counter--;
+export function calc_sweep_target(
+  period: number,
+  shift: number,
+  negate: boolean,
+): number {
+  const delta = period >> shift;
+  return negate ? period - delta : period + delta;
+}
 
-    if (p.length_counter === 0) {
-      p.enabled = false;
+function sweep_timer_reload(period: number): number {
+  return period === 0 ? 8 : period;
+}
+
+export function trigger_pulse(ch: pulse_channel, with_sweep: boolean): void {
+  ch.enabled = ch.dac_enabled;
+
+  ch.freq_timer = pulse_timer_reload(ch.period_value);
+
+  ch.env.timer = ch.env.period === 0 ? 8 : ch.env.period;
+  ch.env.current_volume = ch.env.initial_volume;
+
+  if (!with_sweep) {
+    return;
+  }
+
+  ch.shadow_period = ch.period_value & MAX_PERIOD;
+  ch.sweep_timer = sweep_timer_reload(ch.sweep_period);
+  ch.sweep_enabled = ch.sweep_period !== 0 || ch.sweep_shift !== 0;
+  ch.sweep_negate_used = false;
+
+  if (ch.sweep_shift !== 0) {
+    const target = calc_sweep_target(
+      ch.shadow_period,
+      ch.sweep_shift,
+      ch.sweep_negate,
+    );
+
+    if (ch.sweep_negate) {
+      ch.sweep_negate_used = true;
+    }
+
+    if (target > MAX_PERIOD) {
+      ch.enabled = false;
     }
   }
 }
 
-export function pulse_clock_sweep(p: pulse_state): void {
-  if (!p.sweep_enabled || p.sweep_period === 0) {
-    return;
-  }
-
-  p.sweep_counter--;
-
-  if (p.sweep_counter > 0) {
-    return;
-  }
-
-  p.sweep_counter = p.sweep_period;
-
-  const shadow = p.frequency;
-  let new_freq = shadow >> p.sweep_shift;
-
-  if (p.sweep_dir === 1) {
-    new_freq = shadow - new_freq;
-  } else {
-    new_freq = shadow + new_freq;
-  }
-
-  if (new_freq > 2047) {
-    p.enabled = false;
-    return;
-  }
-
-  p.frequency = new_freq;
-  p.freq_divider = (2048 - new_freq) * 4;
-}
-
-export function pulse_clock_envelope(p: pulse_state): void {
-  if (p.volume_period === 0) {
-    return;
-  }
-
-  p.volume_counter--;
-
-  if (p.volume_counter > 0) {
-    return;
-  }
-
-  p.volume_counter = p.volume_period;
-
-  if (p.volume_dir === 0 && p.volume > 0) {
-    p.volume--;
-  } else if (p.volume_dir === 1 && p.volume < 15) {
-    p.volume++;
-  }
-}
-
-export function pulse_sample(p: pulse_state): number {
-  if (!p.enabled || !p.dac) {
+export function pulse_output(ch: pulse_channel): number {
+  if (!ch.enabled || !ch.dac_enabled) {
     return 0;
   }
 
-  return (p.volume / 15) * (DUTY_PATTERNS[p.duty][p.duty_pos] ? 1 : -1);
+  const duty_bit = DUTY_PATTERNS[ch.duty][ch.duty_pos];
+  const digital = duty_bit ? ch.env.current_volume : 0;
+
+  return digital / 7.5 - 1.0;
 }
 
-export function pulse_tick(p: pulse_state): void {
-  p.freq_divider--;
+export function tick_pulse(ch: pulse_channel): void {
+  ch.freq_timer--;
 
-  if (p.freq_divider <= 0) {
-    p.freq_divider = (2048 - p.frequency) * 4;
-    p.duty_pos = (p.duty_pos + 1) & 7;
+  if (ch.freq_timer <= 0) {
+    ch.freq_timer += pulse_timer_reload(ch.period_value);
+    ch.duty_pos = (ch.duty_pos + 1) & 7;
   }
 }
 
-export function pulse_write_nr0(p: pulse_state, value: number): void {
-  p.sweep_period = (value >> 4) & 0x07;
-  p.sweep_dir = (value >> 3) & 0x01;
-  p.sweep_shift = value & 0x07;
-}
+export function step_sweep(): void {
+  const ch = ctx.ch1;
 
-export function pulse_write_nr1(p: pulse_state, value: number): void {
-  p.duty = (value >> 6) & 0x03;
-  p.length = 64 - (value & 0x3f);
-  p.length_counter = 64 - (value & 0x3f);
-}
-
-export function pulse_write_nr2(p: pulse_state, value: number): void {
-  p.volume_initial = (value >> 4) & 0x0f;
-  p.volume_dir = (value >> 3) & 0x01;
-  p.volume_period = value & 0x07;
-  p.dac = (value & 0xf8) !== 0;
-
-  if (!p.dac) {
-    p.enabled = false;
+  if (!ch.sweep_enabled) {
+    return;
   }
-}
 
-export function pulse_write_nr3(p: pulse_state, value: number): void {
-  p.frequency = (p.frequency & 0x0700) | value;
-}
+  ch.sweep_timer--;
 
-export function pulse_write_nr4(p: pulse_state, value: number, ch: number): void {
-  p.frequency = ((value & 0x07) << 8) | (p.frequency & 0x00ff);
-  p.length_enable = (value & 0x40) !== 0;
-
-  if ((value & 0x80) !== 0) {
-    pulse_trigger(p, ch);
+  if (ch.sweep_timer > 0) {
+    return;
   }
-}
 
-export function pulse_read_nr0(p: pulse_state): number {
-  return (p.sweep_period << 4) | (p.sweep_dir << 3) | p.sweep_shift;
-}
+  ch.sweep_timer = sweep_timer_reload(ch.sweep_period);
 
-export function pulse_read_nr1(p: pulse_state): number {
-  return (p.duty << 6) | 0x3f;
-}
+  if (ch.sweep_period === 0) {
+    return;
+  }
 
-export function pulse_read_nr2(p: pulse_state): number {
-  return (p.volume_initial << 4) | (p.volume_dir << 3) | p.volume_period;
-}
+  const new_period = calc_sweep_target(
+    ch.shadow_period,
+    ch.sweep_shift,
+    ch.sweep_negate,
+  );
 
-export function pulse_read_nr3(): number {
-  return 0xff;
-}
+  if (ch.sweep_negate) {
+    ch.sweep_negate_used = true;
+  }
 
-export function pulse_read_nr4(p: pulse_state): number {
-  return (p.length_enable ? 0x40 : 0) | 0xbf;
+  if (new_period > MAX_PERIOD) {
+    ch.enabled = false;
+    return;
+  }
+
+  if (ch.sweep_shift !== 0) {
+    ch.shadow_period = new_period & MAX_PERIOD;
+    ch.period_value = new_period & MAX_PERIOD;
+
+    const second = calc_sweep_target(
+      ch.shadow_period,
+      ch.sweep_shift,
+      ch.sweep_negate,
+    );
+
+    if (ch.sweep_negate) {
+      ch.sweep_negate_used = true;
+    }
+
+    if (second > MAX_PERIOD) {
+      ch.enabled = false;
+    }
+  }
 }

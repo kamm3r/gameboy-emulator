@@ -1,61 +1,82 @@
-const QUEUE_SIZE = 8192;
-const buffer = new Float32Array(QUEUE_SIZE);
-let write_pos = 0;
-let read_pos = 0;
+import { ctx, type audio_sample_chunk } from "./state";
 
-export function audio_queue_push(sample: Float32Array): void {
-  for (let i = 0; i < sample.length; i++) {
-    buffer[write_pos] = sample[i];
-    write_pos = (write_pos + 1) & (QUEUE_SIZE - 1);
+function queue_capacity(): number {
+  return ctx.sample_queue_l.length;
+}
 
-    if (write_pos === read_pos) {
-      read_pos = (read_pos + 1) & (QUEUE_SIZE - 1);
-    }
+function queue_reset(capacity: number): void {
+  ctx.sample_queue_l = new Float32Array(capacity);
+  ctx.sample_queue_r = new Float32Array(capacity);
+  ctx.sample_queue_read = 0;
+  ctx.sample_queue_write = 0;
+  ctx.sample_queue_count = 0;
+}
+
+export function trim_audio_queue(): void {
+  const capacity = Math.max(1, ctx.max_buffered_samples | 0);
+
+  if (queue_capacity() !== capacity) {
+    queue_reset(capacity);
+    return;
+  }
+
+  while (ctx.sample_queue_count > capacity) {
+    ctx.sample_queue_read = (ctx.sample_queue_read + 1) % capacity;
+    ctx.sample_queue_count--;
   }
 }
 
-export function audio_queue_read(output: Float32Array): number {
-  let count = 0;
+export function audio_push_sample(left: number, right: number): void {
+  const capacity = queue_capacity();
 
-  while (count < output.length && read_pos !== write_pos) {
-    output[count] = buffer[read_pos];
-    read_pos = (read_pos + 1) & (QUEUE_SIZE - 1);
-    count++;
+  if (capacity <= 0) {
+    return;
   }
 
-  return count;
-}
+  if (ctx.sample_queue_count >= capacity) {
+    ctx.sample_queue_read = (ctx.sample_queue_read + 1) % capacity;
+    ctx.sample_queue_count--;
+  }
 
-export function audio_queue_size(): number {
-  return (write_pos - read_pos) & (QUEUE_SIZE - 1);
+  ctx.sample_queue_l[ctx.sample_queue_write] = left;
+  ctx.sample_queue_r[ctx.sample_queue_write] = right;
+  ctx.sample_queue_write = (ctx.sample_queue_write + 1) % capacity;
+  ctx.sample_queue_count++;
 }
 
 export function audio_get_queued_sample_count(): number {
-  return audio_queue_size();
+  return ctx.sample_queue_count;
+}
+
+export function audio_consume_samples(max_samples?: number): audio_sample_chunk {
+  const available = ctx.sample_queue_count;
+  const count =
+    max_samples === undefined
+      ? available
+      : Math.max(0, Math.min(available, max_samples | 0));
+
+  const left = new Float32Array(count);
+  const right = new Float32Array(count);
+  const capacity = queue_capacity();
+
+  if (capacity <= 0) {
+    return { left, right };
+  }
+
+  for (let i = 0; i < count; i++) {
+    const idx = (ctx.sample_queue_read + i) % capacity;
+    left[i] = ctx.sample_queue_l[idx];
+    right[i] = ctx.sample_queue_r[idx];
+  }
+
+  ctx.sample_queue_read = (ctx.sample_queue_read + count) % capacity;
+  ctx.sample_queue_count -= count;
+
+  return { left, right };
 }
 
 export function audio_clear_samples(): void {
-  read_pos = 0;
-  write_pos = 0;
-}
-
-export function audio_consume_samples(count: number): { left: Float32Array; right: Float32Array } {
-  const available = audio_queue_size();
-
-  if (available <= 0) {
-    return { left: new Float32Array(0), right: new Float32Array(0) };
-  }
-
-  const take = Math.min(count, available >> 1);
-  const left = new Float32Array(take);
-  const right = new Float32Array(take);
-
-  for (let i = 0; i < take; i++) {
-    left[i] = buffer[read_pos];
-    read_pos = (read_pos + 1) & (QUEUE_SIZE - 1);
-    right[i] = buffer[read_pos];
-    read_pos = (read_pos + 1) & (QUEUE_SIZE - 1);
-  }
-
-  return { left, right };
+  ctx.sample_queue_read = 0;
+  ctx.sample_queue_write = 0;
+  ctx.sample_queue_count = 0;
 }

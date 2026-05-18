@@ -6,11 +6,9 @@ import {
   emu_resume,
   emu_start,
   emu_stop,
-  emu_subscribe,
-  emu_subscribe_render,
 } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
-import { gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
+import { type gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
 import { useEmu } from "@/hooks/use_emu";
 import { useEmulatorAudio } from "@/hooks/use_emulator_audio";
 import { Badge } from "@/components/ui/badge";
@@ -177,7 +175,6 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
 
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
-  const ui_initialized_ref = useRef(false);
 
   const [show_debug, set_show_debug] = useState(false);
 
@@ -186,7 +183,7 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
 
     const id = window.setInterval(() => {
       const ticks = emu_get_ticks();
-      // console.log("ticks/sec", ticks - lastTicks);
+      console.log("ticks/sec", ticks - lastTicks);
       lastTicks = ticks;
     }, 1000);
 
@@ -201,27 +198,16 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
       return;
     }
 
-    debug_canvas!.width = 128;
-    debug_canvas!.height = 192;
-
     ui_init(canvas, debug_canvas, 2);
-    ui_initialized_ref.current = true;
 
     return () => {
       ui_destroy();
-      ui_initialized_ref.current = false;
     };
   }, []);
 
   useEffect(() => {
-    if (!ui_initialized_ref.current) return;
-
-    const unsub = emu_subscribe_render(() => {
-      ui_update();
-    });
-
-    return unsub;
-  }, []);
+    ui_update();
+  }, [emu.current_frame]);
 
   const has_rom = Boolean(rom_name);
   const can_start = has_rom && !emu.running;
@@ -313,9 +299,7 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
               orientation="vertical"
               className="mx-1 h-8 bg-zinc-800"
             />
-
             <KeybindSettings keybinds={keybinds} onChange={set_keybinds} />
-
             <div className="flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-2">
               <Bug className="h-4 w-4 text-zinc-500" />
               <span className="hidden text-xs text-zinc-400 sm:inline">
@@ -327,8 +311,14 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
         </CardHeader>
 
         <CardContent>
-          <div className="flex items-start gap-8 overflow-x-auto">
-            <div className="flex shrink-0 flex-col gap-4">
+          <div
+            className={
+              show_debug
+                ? "grid items-start gap-8 lg:grid-cols-[auto_auto]"
+                : "flex flex-col"
+            }
+          >
+            <div className="flex flex-col gap-4">
               <canvas
                 ref={canvas_ref}
                 className="block rounded-md bg-black [image-rendering:pixelated]"
@@ -339,37 +329,24 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
               />
 
               <GamepadControls />
-
-              <KeyboardHelp keybinds={keybinds} />
             </div>
 
-            <div
-              className={
-                "shrink-0 overflow-hidden transition-all duration-300 ease-out " +
-                (show_debug
-                  ? "w-[288px] opacity-100"
-                  : "w-0 opacity-0 pointer-events-none")
-              }
-              aria-hidden={!show_debug}
-            >
+            <div className={show_debug ? "block" : "hidden"}>
               <div className="mb-2 flex items-center gap-2 font-mono text-xs text-zinc-500">
                 <Bug className="h-3.5 w-3.5" />
                 render debug
               </div>
 
-              <div className="h-[432px] overflow-hidden rounded-md bg-black">
-                <canvas
-                  ref={debug_canvas_ref}
-                  className="block [image-rendering:pixelated]"
-                  style={{
-                    width: 288,
-                  }}
-                />
-              </div>
+              <canvas
+                ref={debug_canvas_ref}
+                className="block rounded-md bg-black [image-rendering:pixelated]"
+              />
             </div>
           </div>
         </CardContent>
       </Card>
+
+      <KeyboardHelp keybinds={keybinds} />
     </div>
   );
 }

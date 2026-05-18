@@ -1,13 +1,17 @@
 import { cart_battery_save, cart_need_save } from "../cart";
 import { YRES } from "../common";
-import { int_request } from "../interrupts";
-import { lcd_get_context, lcd_set_ly, lcd_set_mode, lcd_get_lyc_was_set } from "../lcd";
-import { INT_LCD_STAT, INT_VBLANK } from "../common";
-import { oam_entry, ppu_get_context } from "./ppu";
+import { cpu_request_interrupt, INT_LCD_STAT, INT_VBLANK } from "../cpu/cpu";
+import { lcd_get_context, lcd_set_ly, lcd_set_mode } from "../lcd";
+import { type oam_entry, ppu_get_context } from "./ppu";
 import { render_scanline } from "./ppu_render";
 
 export const LINES_PER_FRAME = 154;
 export const TICKS_PER_LINE = 456;
+
+const SS_HBLANK = 0;
+const SS_VBLANK = 1;
+const SS_OAM = 2;
+const SS_LYC = 3;
 
 export const MODE_HBLANK = 0;
 export const MODE_VBLANK = 1;
@@ -16,19 +20,15 @@ export const MODE_XFER = 3;
 
 const OAM_TICKS = 80;
 const XFER_TICKS = 172;
-const XFER_END_TICKS = OAM_TICKS + XFER_TICKS;
-
-const SS_HBLANK = 0;
-const SS_VBLANK = 1;
-const SS_OAM = 2;
-const SS_LYC = 3;
 
 function stat_interrupt_enabled(source: number): boolean {
   return (lcd_get_context().lcds & (1 << (source + 3))) !== 0;
 }
 
-function check_lyc_irq(was_set: boolean): void {
+function update_lyc_flag(): void {
   const lcd = lcd_get_context();
+
+  const was_set = (lcd.lcds & 0x04) !== 0;
   const is_set = lcd.ly === lcd.ly_compare;
 
   if (is_set) {
@@ -38,35 +38,21 @@ function check_lyc_irq(was_set: boolean): void {
   }
 
   if (!was_set && is_set && stat_interrupt_enabled(SS_LYC)) {
-    int_request(INT_LCD_STAT);
+    cpu_request_interrupt(INT_LCD_STAT);
   }
 }
 
 function set_ly(value: number): void {
-  const was_set = lcd_get_lyc_was_set();
   lcd_set_ly(value & 0xff);
-  check_lyc_irq(was_set);
+  update_lyc_flag();
 }
 
-function enter_mode(mode: number): void {
+function set_mode(mode: number): void {
   lcd_set_mode(mode);
+}
 
-  switch (mode) {
-    case MODE_OAM:
-      enter_oam();
-      break;
-    case MODE_HBLANK:
-      if (stat_interrupt_enabled(SS_HBLANK)) {
-        int_request(INT_LCD_STAT);
-      }
-      break;
-    case MODE_VBLANK:
-      int_request(INT_VBLANK);
-      if (stat_interrupt_enabled(SS_VBLANK)) {
-        int_request(INT_LCD_STAT);
-      }
-      break;
-  }
+export function lcds_mode(): number {
+  return lcd_get_context().lcds & 0x03;
 }
 
 export function increment_ly(): void {
@@ -79,21 +65,22 @@ export function increment_ly(): void {
 
   ppu.window_was_rendered = false;
 
-  const was_set = lcd_get_lyc_was_set();
   lcd_set_ly((lcd.ly + 1) & 0xff);
-  check_lyc_irq(was_set);
+  update_lyc_flag();
 }
 
 function sprite_comes_before(a: oam_entry, b: oam_entry): boolean {
   if (a.x !== b.x) {
     return a.x < b.x;
   }
+
   return a.oam_index < b.oam_index;
 }
 
 function insert_line_sprite(sprite: oam_entry): void {
   const ppu = ppu_get_context();
   const sprites = ppu.line_sprites;
+
   let index = ppu.line_sprite_count;
 
   while (index > 0 && sprite_comes_before(sprite, sprites[index - 1])) {
@@ -117,6 +104,7 @@ export function load_line_sprites(): void {
 
   for (let i = 0; i < 40; i++) {
     const sprite = oam[i];
+
     const sprite_top = sprite.y - 16;
     const sprite_bottom = sprite_top + sprite_height;
 
@@ -132,29 +120,27 @@ export function load_line_sprites(): void {
   }
 }
 
-function enter_oam(): void {
+export function ppu_mode_oam(): void {
   const ppu = ppu_get_context();
 
-  ppu.line_sprite_count = 0;
-  ppu.line_rendered = false;
-  ppu.window_was_rendered = false;
+  if (ppu.line_ticks === 1) {
+    if (stat_interrupt_enabled(SS_OAM)) {
+      cpu_request_interrupt(INT_LCD_STAT);
+    }
 
-  load_line_sprites();
+    ppu.line_sprite_count = 0;
+    ppu.line_rendered = false;
+    ppu.window_was_rendered = false;
 
-  if (stat_interrupt_enabled(SS_OAM)) {
-    int_request(INT_LCD_STAT);
+    load_line_sprites();
   }
-}
-
-function ppu_mode_oam(): void {
-  const ppu = ppu_get_context();
 
   if (ppu.line_ticks >= OAM_TICKS) {
-    enter_mode(MODE_XFER);
+    set_mode(MODE_XFER);
   }
 }
 
-function ppu_mode_xfer(): void {
+export function ppu_mode_xfer(): void {
   const ppu = ppu_get_context();
 
   if (!ppu.line_rendered) {
@@ -162,36 +148,16 @@ function ppu_mode_xfer(): void {
     ppu.line_rendered = true;
   }
 
-  if (ppu.line_ticks >= XFER_END_TICKS) {
-    enter_mode(MODE_HBLANK);
-  }
-}
+  if (ppu.line_ticks >= OAM_TICKS + XFER_TICKS) {
+    set_mode(MODE_HBLANK);
 
-function ppu_mode_hblank(): void {
-  const ppu = ppu_get_context();
-  const lcd = lcd_get_context();
-
-  if (ppu.line_ticks < TICKS_PER_LINE) {
-    return;
-  }
-
-  increment_ly();
-
-  if (lcd.ly >= YRES) {
-    enter_mode(MODE_VBLANK);
-    ppu.current_frame++;
-
-    if (cart_need_save()) {
-      cart_battery_save();
+    if (stat_interrupt_enabled(SS_HBLANK)) {
+      cpu_request_interrupt(INT_LCD_STAT);
     }
-  } else {
-    enter_mode(MODE_OAM);
   }
-
-  ppu.line_ticks = 0;
 }
 
-function ppu_mode_vblank(): void {
+export function ppu_mode_vblank(): void {
   const ppu = ppu_get_context();
   const lcd = lcd_get_context();
 
@@ -202,38 +168,51 @@ function ppu_mode_vblank(): void {
   increment_ly();
 
   if (lcd.ly >= LINES_PER_FRAME) {
+    set_mode(MODE_OAM);
+    set_ly(0);
+
     ppu.window_line = 0;
     ppu.line_rendered = false;
     ppu.window_was_rendered = false;
-    set_ly(0);
-    enter_mode(MODE_OAM);
   }
 
   ppu.line_ticks = 0;
 }
 
-function run_current_mode(): void {
-  switch (lcd_get_context().lcds & 0x03) {
-    case MODE_OAM:    ppu_mode_oam();    break;
-    case MODE_XFER:   ppu_mode_xfer();   break;
-    case MODE_VBLANK: ppu_mode_vblank(); break;
-    case MODE_HBLANK: ppu_mode_hblank(); break;
-  }
-}
-
-function ticks_until_next_mode_boundary(): number {
+export function ppu_mode_hblank(): void {
   const ppu = ppu_get_context();
+  const lcd = lcd_get_context();
 
-  switch (lcd_get_context().lcds & 0x03) {
-    case MODE_OAM:    return Math.max(1, OAM_TICKS - ppu.line_ticks);
-    case MODE_XFER:   return Math.max(1, XFER_END_TICKS - ppu.line_ticks);
-    case MODE_HBLANK:
-    case MODE_VBLANK: return Math.max(1, TICKS_PER_LINE - ppu.line_ticks);
-    default:          return 1;
+  if (ppu.line_ticks < TICKS_PER_LINE) {
+    return;
   }
+
+  increment_ly();
+
+  if (lcd.ly >= YRES) {
+    set_mode(MODE_VBLANK);
+    cpu_request_interrupt(INT_VBLANK);
+
+    if (stat_interrupt_enabled(SS_VBLANK)) {
+      cpu_request_interrupt(INT_LCD_STAT);
+    }
+
+    ppu.current_frame++;
+
+    if (cart_need_save()) {
+      cart_battery_save();
+    }
+  } else {
+    set_mode(MODE_OAM);
+
+    ppu.line_rendered = false;
+    ppu.window_was_rendered = false;
+  }
+
+  ppu.line_ticks = 0;
 }
 
-export function ppu_tick_batch(t_cycles: number): void {
+export function ppu_tick(): void {
   const lcd = lcd_get_context();
 
   if ((lcd.lcdc & 0x80) === 0) {
@@ -241,12 +220,21 @@ export function ppu_tick_batch(t_cycles: number): void {
   }
 
   const ppu = ppu_get_context();
+  ppu.line_ticks++;
 
-  while (t_cycles > 0) {
-    const step = Math.min(t_cycles, ticks_until_next_mode_boundary());
-    ppu.line_ticks += step;
-    t_cycles -= step;
-    run_current_mode();
+  switch (lcd.lcds & 0x03) {
+    case MODE_OAM:
+      ppu_mode_oam();
+      break;
+    case MODE_XFER:
+      ppu_mode_xfer();
+      break;
+    case MODE_VBLANK:
+      ppu_mode_vblank();
+      break;
+    case MODE_HBLANK:
+      ppu_mode_hblank();
+      break;
   }
 }
 
@@ -255,11 +243,13 @@ export function ppu_sm_init(): void {
 
   ppu.current_frame = 0;
   ppu.line_ticks = 0;
+
   ppu.line_sprite_count = 0;
+
   ppu.window_line = 0;
   ppu.line_rendered = false;
   ppu.window_was_rendered = false;
 
+  set_mode(MODE_OAM);
   set_ly(0);
-  enter_mode(MODE_OAM);
 }

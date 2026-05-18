@@ -1,113 +1,112 @@
-import { CPU_HZ } from "./common";
+import { audio_on_div_falling_edge } from "@/lib/audio/apu";
+import { cpu_request_interrupt } from "@/lib/cpu/cpu";
 
-type timer_context = {
+export const IT_TIMER = 0x04;
+
+export type timer_context = {
   div: number;
   tima: number;
   tma: number;
   tac: number;
-  div_counter: number;
-  tima_counter: number;
-  tima_overflow: boolean;
 };
 
 const ctx: timer_context = {
-  div: 0xabcc,
+  div: 0xac00,
   tima: 0,
   tma: 0,
   tac: 0,
-  div_counter: 0,
-  tima_counter: 0,
-  tima_overflow: false,
 };
 
-let request_interrupt: (flag: number) => void;
+function apu_div_bit(value: number): boolean {
+  return (value & (1 << 12)) !== 0;
+}
 
-const TAC_RATES = [9, 3, 5, 7];
+function clock_apu_on_div_falling_edge(
+  prev_div: number,
+  next_div: number,
+): void {
+  if (apu_div_bit(prev_div) && !apu_div_bit(next_div)) {
+    audio_on_div_falling_edge();
+  }
+}
 
-export function timer_init(irq: (flag: number) => void): void {
-  ctx.div = 0xabcc;
+export function timer_get_context(): timer_context {
+  return ctx;
+}
+
+export function timer_init(): void {
+  ctx.div = 0xac00;
   ctx.tima = 0;
   ctx.tma = 0;
   ctx.tac = 0;
-  ctx.div_counter = 0;
-  ctx.tima_counter = 0;
-  ctx.tima_overflow = false;
-  request_interrupt = irq;
 }
 
-export function timer_tick(t_cycles: number): void {
-  ctx.div_counter += t_cycles;
+export function timer_tick(): void {
+  const prev_div = ctx.div;
+  ctx.div = (ctx.div + 1) & 0xffff;
 
-  while (ctx.div_counter >= 1) {
-    ctx.div_counter--;
-    ctx.div = (ctx.div + 1) & 0xffff;
+  clock_apu_on_div_falling_edge(prev_div, ctx.div);
+
+  let timer_update = false;
+
+  switch (ctx.tac & 0b11) {
+    case 0b00:
+      timer_update = (prev_div & (1 << 9)) !== 0 && (ctx.div & (1 << 9)) === 0;
+      break;
+    case 0b01:
+      timer_update = (prev_div & (1 << 3)) !== 0 && (ctx.div & (1 << 3)) === 0;
+      break;
+    case 0b10:
+      timer_update = (prev_div & (1 << 5)) !== 0 && (ctx.div & (1 << 5)) === 0;
+      break;
+    case 0b11:
+      timer_update = (prev_div & (1 << 7)) !== 0 && (ctx.div & (1 << 7)) === 0;
+      break;
   }
 
-  const tac_enabled = (ctx.tac & 0x04) !== 0;
-
-  if (!tac_enabled) {
-    return;
-  }
-
-  const rate = TAC_RATES[ctx.tac & 0x03];
-  ctx.tima_counter += t_cycles;
-
-  const ticks_needed = 1 << rate;
-
-  while (ctx.tima_counter >= ticks_needed) {
-    ctx.tima_counter -= ticks_needed;
-
-    if (ctx.tima_overflow) {
-      ctx.tima = ctx.tma;
-      ctx.tima_overflow = false;
-      request_interrupt(INT_TIMER);
+  if (timer_update && ctx.tac & (1 << 2)) {
+    if (ctx.tima === 0xff) {
+      ctx.tima = ctx.tma & 0xff;
+      cpu_request_interrupt(IT_TIMER);
     } else {
       ctx.tima = (ctx.tima + 1) & 0xff;
-
-      if (ctx.tima === 0) {
-        ctx.tima_overflow = true;
-      }
     }
   }
 }
 
-const INT_TIMER = 0x04;
-
-export function timer_read(address: number): number {
-  switch (address & 0xff) {
-    case 0x04: return (ctx.div >>> 8) & 0xff;
-    case 0x05: return ctx.tima;
-    case 0x06: return ctx.tma;
-    case 0x07: return ctx.tac | 0xf8;
-    default: return 0xff;
-  }
-}
-
 export function timer_write(address: number, value: number): void {
-  switch (address & 0xff) {
-    case 0x04:
+  switch (address) {
+    case 0xff04: {
+      const prev_div = ctx.div;
       ctx.div = 0;
-      ctx.div_counter = 0;
+      clock_apu_on_div_falling_edge(prev_div, ctx.div);
       break;
-    case 0x05:
-      if (ctx.tima_overflow) {
-        ctx.tima_overflow = false;
-      } else {
-        ctx.tima = value;
-      }
+    }
+    case 0xff05:
+      ctx.tima = value & 0xff;
       break;
-    case 0x06:
-      ctx.tma = value;
-      if (ctx.tima_overflow) {
-        ctx.tima = value;
-      }
+
+    case 0xff06:
+      ctx.tma = value & 0xff;
       break;
-    case 0x07:
+
+    case 0xff07:
       ctx.tac = value & 0x07;
       break;
   }
 }
 
-export function timer_get_div(): number {
-  return ctx.div;
+export function timer_read(address: number): number {
+  switch (address) {
+    case 0xff04:
+      return (ctx.div >> 8) & 0xff;
+    case 0xff05:
+      return ctx.tima;
+    case 0xff06:
+      return ctx.tma;
+    case 0xff07:
+      return ctx.tac;
+  }
+
+  return 0;
 }

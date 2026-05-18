@@ -1,17 +1,23 @@
-import { bus_read, bus_write } from "./memory/bus";
+import { bus_read, bus_write } from "@/lib/memory/bus";
+import { cpu_get_registers } from "@/lib/cpu/cpu";
 
-export function stack_push16(sp: number, value: number): number {
-  sp = (sp - 1) & 0xffff;
-  bus_write(sp, (value >>> 8) & 0xff);
-  sp = (sp - 1) & 0xffff;
-  bus_write(sp, value & 0xff);
-  return sp;
+export function stack_push(value: number): void {
+  cpu_get_registers().SP--;
+  bus_write(cpu_get_registers().SP, value);
 }
 
-export function stack_pop16(sp: number): { value: number; sp: number } {
-  const lo = bus_read(sp);
-  sp = (sp + 1) & 0xffff;
-  const hi = bus_read(sp);
-  sp = (sp + 1) & 0xffff;
-  return { value: (hi << 8) | lo, sp };
+export function stack_push16(value: number): void {
+  stack_push((value >> 8) & 0xff);
+  stack_push(value & 0xff);
+}
+
+export function stack_pop(): number {
+  return bus_read(cpu_get_registers().SP++);
+}
+
+export function stack_pop16(): number {
+  const lo = stack_pop();
+  const hi = stack_pop();
+
+  return (hi << 8) | lo;
 }

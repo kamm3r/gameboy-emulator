@@ -1,117 +1,136 @@
-import { bus_read } from "../memory/bus";
-import { fetch_data } from "./cpu_fetch";
-import { instruction_get_processor } from "./cpu_proc";
-import { cpu_handle_interrupts, int_get_flags, int_get_ie } from "../interrupts";
+import { bus_read } from "@/lib/memory/bus";
+import { formatter } from "@/lib/common";
+import { fetch_data } from "@/lib/cpu/cpu_fetch";
+import { instruction_get_processor } from "@/lib/cpu/cpu_proc";
+import { cpu_handle_interrupts } from "@/lib/interrupts";
 import {
   type instruction,
   instruction_by_opcode,
   instruction_name,
-} from "./instructions";
-import { emu_cycles } from "../emu";
-import { dbg_update, dbg_print } from "../dbg";
+} from "@/lib/cpu/instructions";
+import { timer_get_context } from "@/lib/timer";
+import { dbg_update, dbg_print } from "@/lib/dbg";
+import { emu_cycles, emu_get_context } from "@/lib/emu";
 
 export type cpu_registers = {
-  A: number; F: number;
-  B: number; C: number;
-  D: number; E: number;
-  H: number; L: number;
-  PC: number; SP: number;
+  A: number;
+  F: number;
+  B: number;
+  C: number;
+  D: number;
+  E: number;
+  H: number;
+  L: number;
+  PC: number;
+  SP: number;
 };
 
 export type cpu_context = {
   registers: cpu_registers;
+
   fetched_data: number;
   memory_destination: number;
   destination_is_memory: boolean;
   current_opcode: number;
   current_instruction: instruction | null;
+
   halted: boolean;
   stepping: boolean;
+
   int_master_enabled: boolean;
   enabling_ime: boolean;
   ie_register: number;
   int_flags: number;
 };
 
-const registers: cpu_registers = {
-  A: 0, F: 0,
-  B: 0, C: 0,
-  D: 0, E: 0,
-  H: 0, L: 0,
-  PC: 0, SP: 0,
-};
-
 const ctx: cpu_context = {
-  registers,
+  registers: {
+    A: 0,
+    F: 0,
+    B: 0,
+    C: 0,
+    D: 0,
+    E: 0,
+    H: 0,
+    L: 0,
+    PC: 0,
+    SP: 0,
+  },
+
   fetched_data: 0,
   memory_destination: 0,
   destination_is_memory: false,
   current_opcode: 0,
   current_instruction: null,
+
   halted: false,
   stepping: false,
+
   int_master_enabled: false,
   enabling_ime: false,
   ie_register: 0,
   int_flags: 0,
 };
 
+const CPU_DEBUG = false;
+
 export function cpu_init(): void {
-  const r = ctx.registers;
-  r.PC = 0x0100;
-  r.SP = 0xfffe;
-  r.A = 0x01;
-  r.F = 0xb0;
-  r.B = 0x00;
-  r.C = 0x13;
-  r.D = 0x00;
-  r.E = 0xd8;
-  r.H = 0x01;
-  r.L = 0x4d;
+  ctx.registers.PC = 0x0100;
+  ctx.registers.SP = 0xfffe;
+  ctx.registers.A = 0x01;
+  ctx.registers.F = 0xb0;
+  ctx.registers.B = 0x00;
+  ctx.registers.C = 0x13;
+  ctx.registers.D = 0x00;
+  ctx.registers.E = 0xd8;
+  ctx.registers.H = 0x01;
+  ctx.registers.L = 0x4d;
 
   ctx.fetched_data = 0;
   ctx.memory_destination = 0;
   ctx.destination_is_memory = false;
   ctx.current_opcode = 0;
   ctx.current_instruction = null;
+
   ctx.halted = false;
   ctx.stepping = false;
+
   ctx.ie_register = 0;
   ctx.int_flags = 0;
   ctx.int_master_enabled = false;
   ctx.enabling_ime = false;
+
+  timer_get_context().div = 0xabcc;
 }
 
 export function fetch_instruction(): void {
-  const r = ctx.registers;
-  const opcode = bus_read(r.PC) & 0xff;
-  r.PC = (r.PC + 1) & 0xffff;
-  ctx.current_opcode = opcode;
-  ctx.current_instruction = instruction_by_opcode(opcode);
-}
-
-function hex2(value: number): string {
-  return (value & 0xff).toString(16).padStart(2, "0");
-}
-
-function hex4(value: number): string {
-  return (value & 0xffff).toString(16).padStart(4, "0");
+  ctx.current_opcode = bus_read(ctx.registers.PC) & 0xff;
+  ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
+  ctx.current_instruction = instruction_by_opcode(ctx.current_opcode) ?? null;
 }
 
 export function execute(): void {
   const inst = ctx.current_instruction;
 
-  if (inst === null) {
+  if (!inst) {
     throw new Error(
-      `Unknown instruction ${hex2(ctx.current_opcode)} at PC ${hex4(ctx.registers.PC - 1)}`,
+      `Unknown instruction ${ctx.current_opcode
+        .toString(16)
+        .padStart(2, "0")} at PC ${((ctx.registers.PC - 1) & 0xffff)
+        .toString(16)
+        .padStart(4, "0")}`,
     );
   }
 
   const proc = instruction_get_processor(inst.type);
 
-  if (proc === undefined) {
+  if (!proc) {
     throw new Error(
-      `No processor for instruction ${instruction_name(inst.type)} opcode=${hex2(ctx.current_opcode)}`,
+      `No processor for instruction ${instruction_name(
+        inst.type,
+      )} opcode=${ctx.current_opcode
+        .toString(16)
+        .padStart(2, "0")}`,
     );
   }
 
@@ -119,25 +138,45 @@ export function execute(): void {
 }
 
 export function cpu_step(): boolean {
-  const r = ctx.registers;
-
-  if (ctx.enabling_ime) {
-    ctx.int_master_enabled = true;
-    ctx.enabling_ime = false;
-  }
-
   if (!ctx.halted) {
-    const pc = r.PC;
+    const pc = ctx.registers.PC;
 
     fetch_instruction();
     emu_cycles(1);
-
-    ctx.destination_is_memory = false;
-    ctx.memory_destination = 0;
-
     fetch_data(ctx);
 
+    if (CPU_DEBUG && ctx.current_instruction) {
+      const flags = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
+        ctx.registers.F & (1 << 6) ? "N" : "-"
+      }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
+        ctx.registers.F & (1 << 4) ? "C" : "-"
+      }`;
+
+      console.log(
+        formatter(
+          "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
+          emu_get_context().ticks,
+          pc,
+          instruction_name(ctx.current_instruction.type),
+          ctx.current_opcode,
+          bus_read((pc + 1) & 0xffff),
+          bus_read((pc + 2) & 0xffff),
+          ctx.registers.A,
+          flags,
+          ctx.registers.B,
+          ctx.registers.C,
+          ctx.registers.D,
+          ctx.registers.E,
+          ctx.registers.H,
+          ctx.registers.L,
+        ),
+      );
+    }
+
     if (ctx.current_instruction === null) {
+      console.log(
+        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
+      );
       return false;
     }
 
@@ -148,18 +187,21 @@ export function cpu_step(): boolean {
   } else {
     emu_cycles(1);
 
-    if ((int_get_flags() & int_get_ie()) !== 0) {
+    if (ctx.int_flags) {
       ctx.halted = false;
     }
   }
 
-  cpu_handle_interrupts(ctx);
+  if (ctx.int_master_enabled) {
+    cpu_handle_interrupts();
+    ctx.enabling_ime = false;
+  }
+
+  if (ctx.enabling_ime) {
+    ctx.int_master_enabled = true;
+  }
 
   return true;
-}
-
-export function cpu_get_context(): cpu_context {
-  return ctx;
 }
 
 export function cpu_ie_register(): number {
@@ -170,6 +212,10 @@ export function cpu_set_ie_register(value: number): void {
   ctx.ie_register = value & 0xff;
 }
 
+export function cpu_get_registers(): cpu_registers {
+  return ctx.registers;
+}
+
 export function cpu_get_int_flags(): number {
   return ctx.int_flags & 0xff;
 }
@@ -178,10 +224,19 @@ export function cpu_set_int_flags(value: number): void {
   ctx.int_flags = value & 0xff;
 }
 
+export function cpu_get_context(): cpu_context {
+  return ctx;
+}
+
 export function cpu_request_interrupt(interrupt: number): void {
   ctx.int_flags = (ctx.int_flags | interrupt) & 0xff;
 }
 
-export function cpu_get_registers(): cpu_registers {
-  return ctx.registers;
-}
+export {
+  INT_VBLANK,
+  INT_LCD_STAT,
+  INT_TIMER,
+  INT_SERIAL,
+  INT_JOYPAD,
+  cpu_handle_interrupts,
+} from "@/lib/interrupts";

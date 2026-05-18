@@ -1,120 +1,71 @@
-import { cart_read, cart_write } from "../cart";
-import { dma_is_active } from "./dma";
-import { io_read, io_write } from "../io";
-import {
-  ppu_vram_read,
-  ppu_vram_write,
-  ppu_oam_read,
-  ppu_oam_write,
-} from "../ppu/ppu";
-import { wram_read, wram_write, hram_read, hram_write } from "./ram";
-import { int_get_ie, int_set_ie } from "../interrupts";
+import { cart_read, cart_write } from "@/lib/cart";
+import { cpu_ie_register, cpu_set_ie_register } from "@/lib/cpu/cpu";
+import { hram_read, hram_write, wram_read, wram_write } from "@/lib/memory/ram";
+import { ppu_vram_read, ppu_vram_write, ppu_oam_read, ppu_oam_write } from "@/lib/ppu/ppu";
+import { io_read, io_write } from "@/lib/io";
+import { dma_transferring } from "@/lib/memory/dma";
 
 export function bus_read(address: number): number {
-  address &= 0xffff;
-
   if (address < 0x8000) {
     return cart_read(address);
-  }
-
-  if (address < 0xa000) {
+  } else if (address < 0xa000) {
     return ppu_vram_read(address);
-  }
-
-  if (address < 0xc000) {
+  } else if (address < 0xc000) {
     return cart_read(address);
-  }
-
-  if (address < 0xe000) {
-    return wram_read(address - 0xc000);
-  }
-
-  if (address < 0xfe00) {
-    return wram_read(address - 0xe000);
-  }
-
-  if (address < 0xfea0) {
-    if (dma_is_active()) {
+  } else if (address < 0xe000) {
+    return wram_read(address);
+  } else if (address < 0xfe00) {
+    return 0;
+  } else if (address < 0xfea0) {
+    if (dma_transferring()) {
       return 0xff;
     }
     return ppu_oam_read(address);
-  }
-
-  if (address < 0xff00) {
-    return 0xff;
-  }
-
-  if (address < 0xff80) {
+  } else if (address < 0xff00) {
+    return 0;
+  } else if (address < 0xff80) {
     return io_read(address);
-  }
-
-  if (address === 0xffff) {
-    return int_get_ie();
+  } else if (address === 0xffff) {
+    return cpu_ie_register();
   }
 
   return hram_read(address);
 }
 
 export function bus_write(address: number, value: number): void {
-  address &= 0xffff;
-  value &= 0xff;
-
   if (address < 0x8000) {
     cart_write(address, value);
-    return;
-  }
-
-  if (address < 0xa000) {
+  } else if (address < 0xa000) {
     ppu_vram_write(address, value);
-    return;
-  }
-
-  if (address < 0xc000) {
+  } else if (address < 0xc000) {
     cart_write(address, value);
-    return;
-  }
-
-  if (address < 0xe000) {
-    wram_write(address - 0xc000, value);
-    return;
-  }
-
-  if (address < 0xfe00) {
-    wram_write(address - 0xe000, value);
-    return;
-  }
-
-  if (address < 0xfea0) {
-    if (!dma_is_active()) {
-      ppu_oam_write(address, value);
+  } else if (address < 0xe000) {
+    wram_write(address, value);
+  } else if (address < 0xfe00) {
+    // reserved echo ram
+  } else if (address < 0xfea0) {
+    if (dma_transferring()) {
+      return;
     }
-    return;
-  }
-
-  if (address < 0xff00) {
-    return;
-  }
-
-  if (address < 0xff80) {
+    ppu_oam_write(address, value);
+  } else if (address < 0xFF00) {
+    // unusable reserved
+  } else if (address < 0xFF80) {
     io_write(address, value);
-    return;
+  } else if (address === 0xFFFF) {
+    cpu_set_ie_register(value);
+  } else {
+    hram_write(address, value);
   }
-
-  if (address === 0xffff) {
-    int_set_ie(value);
-    return;
-  }
-
-  hram_write(address, value);
 }
 
 export function bus_read16(address: number): number {
-  const lo = bus_read(address);
-  const hi = bus_read(address + 1);
-  return lo | (hi << 8);
+  const low = bus_read(address);
+  const high = bus_read(address + 1);
+  return low | (high << 8);
 }
 
 export function bus_write16(address: number, value: number): void {
-  bus_write(address, value & 0xff);
-  bus_write(address + 1, (value >>> 8) & 0xff);
+  bus_write(address + 1, (value >> 8) & 0xFF);
+  bus_write(address, value & 0xFF);
 }
