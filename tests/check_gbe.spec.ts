@@ -11,21 +11,27 @@ import {
   emu_get_context,
 } from "../src/lib/emu.js";
 
+const ROMS_DIR = path.join(
+  import.meta.dirname,
+  "..",
+  "game-boy-test-roms-v7.0",
+);
+
 const TEST_ROMS = [
-  "01-special.gb",
-  "02-interrupts.gb",
-  "03-op sp,hl.gb",
-  "04-op r,imm.gb",
-  "05-op rp.gb",
-  "06-ld r,r.gb",
-  "07-jr,jp,call,ret,rst.gb",
-  "08-misc instrs.gb",
-  "09-op r,r.gb",
-  "10-bit ops.gb",
-  "11-op a,(hl).gb",
-  "cpu_instrs.gb",
-  "dmg-acid2.gb",
-  "mem_timing.gb",
+  { name: "01-special.gb", path: "blargg/cpu_instrs/individual/01-special.gb" },
+  { name: "02-interrupts.gb", path: "blargg/cpu_instrs/individual/02-interrupts.gb" },
+  { name: "03-op sp,hl.gb", path: "blargg/cpu_instrs/individual/03-op sp,hl.gb" },
+  { name: "04-op r,imm.gb", path: "blargg/cpu_instrs/individual/04-op r,imm.gb" },
+  { name: "05-op rp.gb", path: "blargg/cpu_instrs/individual/05-op rp.gb" },
+  { name: "06-ld r,r.gb", path: "blargg/cpu_instrs/individual/06-ld r,r.gb" },
+  { name: "07-jr,jp,call,ret,rst.gb", path: "blargg/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb" },
+  { name: "08-misc instrs.gb", path: "blargg/cpu_instrs/individual/08-misc instrs.gb" },
+  { name: "09-op r,r.gb", path: "blargg/cpu_instrs/individual/09-op r,r.gb" },
+  { name: "10-bit ops.gb", path: "blargg/cpu_instrs/individual/10-bit ops.gb" },
+  { name: "11-op a,(hl).gb", path: "blargg/cpu_instrs/individual/11-op a,(hl).gb" },
+  { name: "cpu_instrs.gb", path: "blargg/cpu_instrs/cpu_instrs.gb" },
+  { name: "dmg-acid2.gb", path: "dmg-acid2/dmg-acid2.gb" },
+  { name: "mem_timing.gb", path: "blargg/mem_timing/mem_timing.gb" },
 ];
 
 function runEmulator(
@@ -104,19 +110,19 @@ function runEmulator(
 }
 
 for (const rom of TEST_ROMS) {
-  test(rom, () => {
-    const romPath = path.join(process.cwd(), "roms", rom);
+  test(rom.name, () => {
+    const romPath = path.join(ROMS_DIR, rom.path);
     const result = runEmulator(romPath);
 
     console.log(
-      `\n${rom}: cycles=${result.cycles}, output length=${result.output.length}`,
+      `\n${rom.name}: cycles=${result.cycles}, output length=${result.output.length}`,
     );
     console.log("Debug:", result.debugInfo);
     console.log("Output:", result.output);
 
     expect(
       result.passed,
-      `ROM ${rom} failed: ${result.debugInfo} - ${result.output}`,
+      `ROM ${rom.name} failed: ${result.debugInfo} - ${result.output}`,
     ).toBe(true);
   });
 }

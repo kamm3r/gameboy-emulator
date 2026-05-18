@@ -1,11 +1,11 @@
-import { cpu_init, cpu_step, cpu_request_interrupt } from "./cpu/cpu";
+import { cpu_init, cpu_step } from "./cpu/cpu";
 import { cart_load } from "./cart";
 import { dma_init, dma_tick_batch } from "./memory/dma";
 import { ppu_get_context, ppu_init, ppu_update_dirty_tiles, ppu_oam_write } from "./ppu/ppu";
 import { ppu_sm_init, ppu_tick_batch } from "./ppu/ppu_sm";
 import { timer_init, timer_tick } from "./timer";
 import { T_CYCLES_PER_FRAME, TARGET_FRAME_MS, get_now } from "./common";
-import { int_init } from "./interrupts";
+import { int_init, int_request } from "./interrupts";
 import { bus_read } from "./memory/bus";
 import { audio_init, audio_tick } from "./audio/apu";
 
@@ -205,7 +205,7 @@ export function emu_init(): void {
   cancel_loop();
 
   int_init();
-  timer_init(cpu_request_interrupt);
+  timer_init(int_request);
   dma_init(bus_read, (addr: number, val: number) => ppu_oam_write(addr, val));
   cpu_init();
   ppu_init();

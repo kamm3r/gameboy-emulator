@@ -104,7 +104,7 @@ function runEmulator(
 
 for (const rom of AUDIO_TEST_ROMS) {
   test(rom, () => {
-    const romPath = path.join(process.cwd(), "roms", rom);
+    const romPath = path.join(import.meta.dirname, "..", "game-boy-test-roms-v7.0", rom);
     const result = runEmulator(romPath);
 
     console.log(

@@ -1,7 +1,7 @@
 import { bus_read } from "../memory/bus";
 import { fetch_data } from "./cpu_fetch";
 import { instruction_get_processor } from "./cpu_proc";
-import { cpu_handle_interrupts } from "../interrupts";
+import { cpu_handle_interrupts, int_get_flags, int_get_ie } from "../interrupts";
 import {
   type instruction,
   instruction_by_opcode,
@@ -148,12 +148,12 @@ export function cpu_step(): boolean {
   } else {
     emu_cycles(1);
 
-    if (ctx.int_flags !== 0) {
+    if ((int_get_flags() & int_get_ie()) !== 0) {
       ctx.halted = false;
     }
   }
 
-  cpu_handle_interrupts();
+  cpu_handle_interrupts(ctx);
 
   return true;
 }

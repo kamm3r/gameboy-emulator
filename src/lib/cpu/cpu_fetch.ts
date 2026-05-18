@@ -1,6 +1,6 @@
 import { cpu_context } from "./cpu";
 import { bus_read } from "../memory/bus";
-import { cpu_read_register, cpu_set_register } from "./cpu_util";
+import { cpu_read_register, cpu_read_register8, cpu_set_register } from "./cpu_util";
 
 export function fetch_data(ctx: cpu_context): void {
   const inst = ctx.current_instruction;
@@ -19,8 +19,11 @@ export function fetch_data(ctx: cpu_context): void {
       break;
 
     case "AM_R_R":
-    case "AM_R_MR":
       ctx.fetched_data = cpu_read_register(ctx, inst.reg_2!);
+      break;
+
+    case "AM_R_MR":
+      ctx.fetched_data = bus_read(cpu_read_register(ctx, inst.reg_2!)) & 0xff;
       break;
 
     case "AM_R_D8":
@@ -50,15 +53,19 @@ export function fetch_data(ctx: cpu_context): void {
     }
 
     case "AM_A8_R": {
-      ctx.fetched_data = bus_read(r.PC) & 0xff;
+      const lo = bus_read(r.PC) & 0xff;
       r.PC = (r.PC + 1) & 0xffff;
-      ctx.memory_destination = 0xff00 | ctx.fetched_data;
+      ctx.memory_destination = 0xff00 | lo;
+      ctx.fetched_data = cpu_read_register(ctx, "RT_A");
+      ctx.destination_is_memory = true;
       break;
     }
 
     case "AM_A16_R":
       ctx.memory_destination = bus_read(r.PC) | (bus_read(r.PC + 1) << 8);
       r.PC = (r.PC + 2) & 0xffff;
+      ctx.fetched_data = cpu_read_register(ctx, "RT_A");
+      ctx.destination_is_memory = true;
       break;
 
     case "AM_R_A16":
@@ -80,6 +87,7 @@ export function fetch_data(ctx: cpu_context): void {
       const hl = cpu_read_register(ctx, inst.reg_1!);
       ctx.memory_destination = hl;
       ctx.fetched_data = data;
+      ctx.destination_is_memory = true;
       break;
     }
 
@@ -100,12 +108,27 @@ export function fetch_data(ctx: cpu_context): void {
 
     case "AM_HLI_R":
       ctx.memory_destination = cpu_read_register(ctx, "RT_HL");
+      ctx.fetched_data = cpu_read_register(ctx, "RT_A");
       cpu_set_register(ctx, "RT_HL", (ctx.memory_destination + 1) & 0xffff);
+      ctx.destination_is_memory = true;
       break;
 
     case "AM_HLD_R":
       ctx.memory_destination = cpu_read_register(ctx, "RT_HL");
+      ctx.fetched_data = cpu_read_register(ctx, "RT_A");
       cpu_set_register(ctx, "RT_HL", (ctx.memory_destination - 1) & 0xffff);
+      ctx.destination_is_memory = true;
+      break;
+
+    case "AM_C_R":
+      ctx.memory_destination = 0xff00 | r.C;
+      ctx.fetched_data = cpu_read_register(ctx, "RT_A");
+      ctx.destination_is_memory = true;
+      break;
+
+    case "AM_R_C":
+      ctx.memory_destination = 0xff00 | r.C;
+      ctx.fetched_data = bus_read(ctx.memory_destination) & 0xff;
       break;
   }
 }

@@ -18,7 +18,7 @@ export type AddrMode =
   | "AM_MR_R" | "AM_R_MR" | "AM_R_HLI" | "AM_R_HLD" | "AM_HLI_R"
   | "AM_HLD_R" | "AM_R_A8" | "AM_A8_R" | "AM_HL_SPR"
   | "AM_D16" | "AM_D8" | "AM_A16_R" | "AM_R_A16"
-  | "AM_A16" | "AM_MR" | "AM_MR_D8";
+  | "AM_A16" | "AM_MR" | "AM_MR_D8" | "AM_C_R" | "AM_R_C";
 
 export type CondType =
   | "CT_NONE" | "CT_C" | "CT_NC" | "CT_Z" | "CT_NZ";
@@ -264,7 +264,7 @@ export const opcodes: instruction[] = [
   { type: InType.IN_RET, mode: "AM_IMP", reg_1: null, reg_2: null, cond: "CT_Z", param: null },
   { type: InType.IN_RET, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_JP, mode: "AM_A16", reg_1: null, reg_2: null, cond: "CT_Z", param: null },
-  { type: InType.IN_CB, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
+  { type: InType.IN_CB, mode: "AM_D8", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_CALL, mode: "AM_A16", reg_1: null, reg_2: null, cond: "CT_Z", param: null },
   { type: InType.IN_CALL, mode: "AM_A16", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_ADC, mode: "AM_R_D8", reg_1: RT_A, reg_2: null, cond: null, param: null },
@@ -289,14 +289,14 @@ export const opcodes: instruction[] = [
   // 0xE0
   { type: InType.IN_LDH, mode: "AM_A8_R", reg_1: null, reg_2: RT_A, cond: null, param: null },
   { type: InType.IN_POP, mode: "AM_R", reg_1: RT_HL, reg_2: null, cond: null, param: null },
-  { type: InType.IN_LD, mode: "AM_HLD_R", reg_1: RT_HL, reg_2: RT_A, cond: null, param: null },
+  { type: InType.IN_LDH, mode: "AM_C_R", reg_1: null, reg_2: RT_A, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_PUSH, mode: "AM_R", reg_1: RT_HL, reg_2: null, cond: null, param: null },
   { type: InType.IN_AND, mode: "AM_R_D8", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_RST, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: 0x20 },
   { type: InType.IN_ADD, mode: "AM_HL_SPR", reg_1: RT_HL, reg_2: RT_SP, cond: null, param: null },
-  { type: InType.IN_JP, mode: "AM_R", reg_1: RT_HL, reg_2: null, cond: null, param: null },
+  { type: InType.IN_JPHL, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_LD, mode: "AM_A16_R", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
@@ -306,14 +306,14 @@ export const opcodes: instruction[] = [
   // 0xF0
   { type: InType.IN_LDH, mode: "AM_R_A8", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_POP, mode: "AM_R", reg_1: RT_AF, reg_2: null, cond: null, param: null },
-  { type: InType.IN_LD, mode: "AM_HLI_R", reg_1: RT_HL, reg_2: RT_A, cond: null, param: null },
+  { type: InType.IN_LDH, mode: "AM_R_C", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_DI, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_PUSH, mode: "AM_R", reg_1: RT_AF, reg_2: null, cond: null, param: null },
   { type: InType.IN_OR, mode: "AM_R_D8", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_RST, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: 0x30 },
-  { type: InType.IN_LD, mode: "AM_HL_SPR", reg_1: RT_SP, reg_2: RT_HL, cond: null, param: null },
-  { type: InType.IN_JPHL, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
+  { type: InType.IN_LD, mode: "AM_HL_SPR", reg_1: RT_HL, reg_2: RT_SP, cond: null, param: null },
+  { type: InType.IN_LD, mode: "AM_R_R", reg_1: RT_SP, reg_2: RT_HL, cond: null, param: null },
   { type: InType.IN_LD, mode: "AM_R_A16", reg_1: RT_A, reg_2: null, cond: null, param: null },
   { type: InType.IN_EI, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },
   { type: InType.IN_NOP, mode: "AM_IMP", reg_1: null, reg_2: null, cond: null, param: null },

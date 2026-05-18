@@ -59,7 +59,7 @@ function get_ram_size(byte: number): number {
 }
 
 function detect_mbc(type: number): mbc_type {
-  if (type <= 0x03) return "mbc1";
+  if (type >= 0x01 && type <= 0x03) return "mbc1";
   if (type >= 0x0f && type <= 0x13) return "mbc3";
   return "rom_only";
 }

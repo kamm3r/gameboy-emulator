@@ -245,6 +245,31 @@ function is_16_bit(reg: string): boolean {
 export function proc_ld(ctx: cpu_context): void {
   const inst = ctx.current_instruction!;
 
+  if (inst.mode === "AM_MR_R") {
+    const addr = cpu_read_register(ctx, inst.reg_1!);
+    const value = cpu_read_register(ctx, inst.reg_2!);
+    bus_write(addr, value & 0xff);
+    emu_cycles(1);
+    return;
+  }
+
+  if (inst.mode === "AM_A16_R") {
+    const value = ctx.fetched_data & 0xffff;
+    bus_write(ctx.memory_destination, value & 0xff);
+    emu_cycles(1);
+    if (is_16_bit(inst.reg_1!)) {
+      bus_write((ctx.memory_destination + 1) & 0xffff, (value >>> 8) & 0xff);
+      emu_cycles(1);
+    }
+    return;
+  }
+
+  if (inst.mode === "AM_C_R") {
+    bus_write(ctx.memory_destination, ctx.registers.A & 0xff);
+    emu_cycles(1);
+    return;
+  }
+
   if (ctx.destination_is_memory) {
     if (is_16_bit(inst.reg_2!)) {
       const value = ctx.fetched_data & 0xffff;
@@ -539,6 +564,10 @@ const processors: Record<number, (ctx: cpu_context) => void> = {
   [InType.IN_HALT]: proc_halt,
   [InType.IN_STOP]: proc_stop,
   [InType.IN_JPHL]: proc_jphl,
+  [InType.IN_RLCA]: proc_rlca,
+  [InType.IN_RRCA]: proc_rrca,
+  [InType.IN_RLA]: proc_rla,
+  [InType.IN_RRA]: proc_rra,
   [InType.IN_CB]: proc_cb,
   [InType.IN_RLC]: proc_cb,
   [InType.IN_RRC]: proc_cb,

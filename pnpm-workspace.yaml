@@ -1,0 +1,6 @@
+allowBuilds:
+  esbuild: true
+  msw: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@types/node@25.9.0'

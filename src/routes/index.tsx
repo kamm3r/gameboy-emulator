@@ -1,35 +1,33 @@
-import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { EmulatorView } from "@/components/emulator_view";
-import { emu_init, emu_load_rom, emu_start } from "@/lib/emu";
-import { Upload } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { EmulatorView } from '@/components/emulator_view'
+import { emu_init, emu_load_rom, emu_start } from '@/lib/emu'
+import { Upload } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
-export const Route = createFileRoute("/")({
-  component: Home,
-});
+export const Route = createFileRoute('/')({ component: App })
 
-function Home() {
-  const [rom_name, set_rom_name] = useState("");
+function App() {
+  const [rom_name, set_rom_name] = useState('')
 
   async function on_file_change(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const file = event.target.files?.[0]
+    if (!file) return
 
-    const buffer = await file.arrayBuffer();
-    const rom_data = new Uint8Array(buffer);
+    const buffer = await file.arrayBuffer()
+    const rom_data = new Uint8Array(buffer)
 
-    emu_init();
+    emu_init()
 
-    const ok = emu_load_rom(rom_data, file.name);
+    const ok = emu_load_rom(rom_data, file.name)
     if (!ok) {
-      console.error("failed to load rom");
-      set_rom_name("");
-      return;
+      console.error('failed to load rom')
+      set_rom_name('')
+      return
     }
 
-    set_rom_name(file.name);
-    emu_start();
+    set_rom_name(file.name)
+    emu_start()
   }
 
   return (
@@ -54,5 +52,5 @@ function Home() {
         <EmulatorView rom_name={rom_name} />
       </div>
     </div>
-  );
+  )
 }

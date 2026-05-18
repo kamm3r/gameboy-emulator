@@ -99,7 +99,7 @@ function render_sprite_line(
   const sprite_line_color_id = ppu.sprite_line_color_id;
   const sprite_line_priority = ppu.sprite_line_priority;
 
-  for (let i = 0; i < line_sprite_count; i++) {
+  for (let i = line_sprite_count - 1; i >= 0; i--) {
     draw_sprite_to_line(
       line_sprites[i],
       screen_y,

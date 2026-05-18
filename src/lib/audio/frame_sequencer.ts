@@ -10,7 +10,7 @@ export function fs_init(): frame_sequencer_state {
 export function fs_tick(fs: frame_sequencer_state): number {
   fs.counter++;
 
-  if (fs.counter < 2) {
+  if (fs.counter < 8192) {
     return -1;
   }
 

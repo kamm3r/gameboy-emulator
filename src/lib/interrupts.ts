@@ -1,7 +1,13 @@
 import { INT_MASK } from "./common";
-import { cpu_get_context } from "./cpu/cpu";
 import { emu_cycles } from "./emu";
 import { stack_push16 } from "./stack";
+
+type interrupt_cpu_context = {
+  registers: { PC: number; SP: number };
+  halted: boolean;
+  int_master_enabled: boolean;
+  enabling_ime: boolean;
+};
 
 const INTERRUPTS: [number, number][] = [
   [0x01, 0x40],
@@ -13,14 +19,10 @@ const INTERRUPTS: [number, number][] = [
 
 let int_flags = 0;
 let ie_register = 0;
-let ime = false;
-let halted = false;
 
 export function int_init(): void {
   int_flags = 0;
   ie_register = 0;
-  ime = false;
-  halted = false;
 }
 
 export function int_get_flags(): number {
@@ -43,38 +45,22 @@ export function int_set_ie(value: number): void {
   ie_register = value & 0xff;
 }
 
-export function int_is_halted(): boolean {
-  return halted;
-}
-
-export function int_set_halted(h: boolean): void {
-  halted = h;
-}
-
-export function int_get_ime(): boolean {
-  return ime;
-}
-
-export function int_set_ime(val: boolean): void {
-  ime = val;
-}
-
-export function cpu_handle_interrupts(): void {
+export function cpu_handle_interrupts(ctx: interrupt_cpu_context): void {
   const pending = int_flags & ie_register & INT_MASK;
 
-  if (pending === 0 || !ime) {
+  if (pending === 0 || !ctx.int_master_enabled) {
     return;
   }
 
-  halted = false;
+  ctx.halted = false;
 
   for (const [flag, addr] of INTERRUPTS) {
     if ((int_flags & flag) !== 0 && (ie_register & flag) !== 0) {
       int_flags &= ~flag;
-      ime = false;
+      ctx.int_master_enabled = false;
+      ctx.enabling_ime = false;
       emu_cycles(2);
 
-      const ctx = cpu_get_context();
       ctx.registers.SP = stack_push16(ctx.registers.SP, ctx.registers.PC);
       emu_cycles(1);
 

@@ -46,7 +46,6 @@ export function timer_tick(t_cycles: number): void {
   const tac_enabled = (ctx.tac & 0x04) !== 0;
 
   if (!tac_enabled) {
-    ctx.tima_counter = 0;
     return;
   }
 
@@ -88,6 +87,7 @@ export function timer_write(address: number, value: number): void {
   switch (address & 0xff) {
     case 0x04:
       ctx.div = 0;
+      ctx.div_counter = 0;
       break;
     case 0x05:
       if (ctx.tima_overflow) {
