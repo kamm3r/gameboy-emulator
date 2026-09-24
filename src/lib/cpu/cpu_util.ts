@@ -1,49 +1,34 @@
-import { bus_read, bus_write } from "@/lib/memory/bus";
-import { type cpu_context } from "@/lib/cpu/cpu";
+import { bus_read } from "@/lib/memory/bus";
+import { type cpu_context, type cpu_registers } from "@/lib/cpu/cpu";
 import { type RegType } from "@/lib/cpu/instructions";
 
-export function reverse(value: number): number {
-  value &= 0xffff;
-  return ((value & 0xff00) >> 8) | ((value & 0x00ff) << 8);
+type reg8 = "A" | "F" | "B" | "C" | "D" | "E" | "H" | "L";
+
+const REG8: Partial<Record<RegType, reg8>> = {
+  RT_A: "A", RT_F: "F", RT_B: "B", RT_C: "C",
+  RT_D: "D", RT_E: "E", RT_H: "H", RT_L: "L",
+};
+
+const REG16: Partial<Record<RegType, [reg8, reg8]>> = {
+  RT_AF: ["A", "F"], RT_BC: ["B", "C"], RT_DE: ["D", "E"], RT_HL: ["H", "L"],
+};
+
+// F keeps only the upper 4 flag bits
+function mask_of(r: keyof cpu_registers): number {
+  return r === "F" ? 0xf0 : r === "PC" || r === "SP" ? 0xffff : 0xff;
 }
 
 export function cpu_read_register(ctx: cpu_context, reg: RegType): number {
-  switch (reg) {
-    case "RT_A":
-      return ctx.registers.A & 0xff;
-    case "RT_F":
-      return ctx.registers.F & 0xf0;
-    case "RT_B":
-      return ctx.registers.B & 0xff;
-    case "RT_C":
-      return ctx.registers.C & 0xff;
-    case "RT_D":
-      return ctx.registers.D & 0xff;
-    case "RT_E":
-      return ctx.registers.E & 0xff;
-    case "RT_H":
-      return ctx.registers.H & 0xff;
-    case "RT_L":
-      return ctx.registers.L & 0xff;
+  const r = ctx.registers;
+  const single = REG8[reg];
+  if (single) return r[single] & mask_of(single);
 
-    case "RT_AF":
-      return (((ctx.registers.A & 0xff) << 8) | (ctx.registers.F & 0xf0)) & 0xffff;
-    case "RT_BC":
-      return (((ctx.registers.B & 0xff) << 8) | (ctx.registers.C & 0xff)) & 0xffff;
-    case "RT_DE":
-      return (((ctx.registers.D & 0xff) << 8) | (ctx.registers.E & 0xff)) & 0xffff;
-    case "RT_HL":
-      return (((ctx.registers.H & 0xff) << 8) | (ctx.registers.L & 0xff)) & 0xffff;
+  const pair = REG16[reg];
+  if (pair) return ((r[pair[0]] & 0xff) << 8) | (r[pair[1]] & mask_of(pair[1]));
 
-    case "RT_PC":
-      return ctx.registers.PC & 0xffff;
-    case "RT_SP":
-      return ctx.registers.SP & 0xffff;
-
-    case "RT_NONE":
-    default:
-      return 0;
-  }
+  if (reg === "RT_PC") return r.PC & 0xffff;
+  if (reg === "RT_SP") return r.SP & 0xffff;
+  return 0;
 }
 
 export function cpu_set_register(
@@ -51,128 +36,31 @@ export function cpu_set_register(
   reg: RegType,
   value: number,
 ): void {
-  value &= 0xffff;
-
-  switch (reg) {
-    case "RT_A":
-      ctx.registers.A = value & 0xff;
-      break;
-    case "RT_F":
-      ctx.registers.F = value & 0xf0;
-      break;
-    case "RT_B":
-      ctx.registers.B = value & 0xff;
-      break;
-    case "RT_C":
-      ctx.registers.C = value & 0xff;
-      break;
-    case "RT_D":
-      ctx.registers.D = value & 0xff;
-      break;
-    case "RT_E":
-      ctx.registers.E = value & 0xff;
-      break;
-    case "RT_H":
-      ctx.registers.H = value & 0xff;
-      break;
-    case "RT_L":
-      ctx.registers.L = value & 0xff;
-      break;
-
-    case "RT_AF":
-      ctx.registers.A = (value >> 8) & 0xff;
-      ctx.registers.F = value & 0xf0;
-      break;
-    case "RT_BC":
-      ctx.registers.B = (value >> 8) & 0xff;
-      ctx.registers.C = value & 0xff;
-      break;
-    case "RT_DE":
-      ctx.registers.D = (value >> 8) & 0xff;
-      ctx.registers.E = value & 0xff;
-      break;
-    case "RT_HL":
-      ctx.registers.H = (value >> 8) & 0xff;
-      ctx.registers.L = value & 0xff;
-      break;
-
-    case "RT_PC":
-      ctx.registers.PC = value & 0xffff;
-      break;
-    case "RT_SP":
-      ctx.registers.SP = value & 0xffff;
-      break;
-
-    case "RT_NONE":
-      break;
+  const r = ctx.registers;
+  const single = REG8[reg];
+  if (single) {
+    r[single] = value & mask_of(single);
+    return;
   }
+
+  const pair = REG16[reg];
+  if (pair) {
+    r[pair[0]] = (value >> 8) & 0xff;
+    r[pair[1]] = value & mask_of(pair[1]);
+    return;
+  }
+
+  if (reg === "RT_PC") r.PC = value & 0xffff;
+  else if (reg === "RT_SP") r.SP = value & 0xffff;
 }
 
+// 8-bit operand read; RT_HL means the byte at (HL)
 export function cpu_read_register8(ctx: cpu_context, reg: RegType): number {
-  switch (reg) {
-    case "RT_A":
-      return ctx.registers.A & 0xff;
-    case "RT_F":
-      return ctx.registers.F & 0xf0;
-    case "RT_B":
-      return ctx.registers.B & 0xff;
-    case "RT_C":
-      return ctx.registers.C & 0xff;
-    case "RT_D":
-      return ctx.registers.D & 0xff;
-    case "RT_E":
-      return ctx.registers.E & 0xff;
-    case "RT_H":
-      return ctx.registers.H & 0xff;
-    case "RT_L":
-      return ctx.registers.L & 0xff;
-
-    case "RT_HL":
-      return bus_read(cpu_read_register(ctx, "RT_HL")) & 0xff;
-
-    default:
-      throw new Error(`ERR INVALID REG8: ${String(reg)}`);
+  if (reg === "RT_HL") {
+    return bus_read(cpu_read_register(ctx, "RT_HL")) & 0xff;
   }
-}
 
-export function cpu_set_register8(
-  ctx: cpu_context,
-  reg: RegType,
-  value: number,
-): void {
-  value &= 0xff;
-
-  switch (reg) {
-    case "RT_A":
-      ctx.registers.A = value;
-      break;
-    case "RT_F":
-      ctx.registers.F = value & 0xf0;
-      break;
-    case "RT_B":
-      ctx.registers.B = value;
-      break;
-    case "RT_C":
-      ctx.registers.C = value;
-      break;
-    case "RT_D":
-      ctx.registers.D = value;
-      break;
-    case "RT_E":
-      ctx.registers.E = value;
-      break;
-    case "RT_H":
-      ctx.registers.H = value;
-      break;
-    case "RT_L":
-      ctx.registers.L = value;
-      break;
-
-    case "RT_HL":
-      bus_write(cpu_read_register(ctx, "RT_HL"), value);
-      break;
-
-    default:
-      throw new Error(`ERR INVALID REG8: ${String(reg)}`);
-  }
+  const single = REG8[reg];
+  if (!single) throw new Error(`ERR INVALID REG8: ${String(reg)}`);
+  return ctx.registers[single] & mask_of(single);
 }
