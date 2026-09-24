@@ -9,7 +9,7 @@ import {
 import { ppu_tick, ppu_sm_init } from "@/lib/ppu/ppu_sm";
 import { timer_init, timer_tick } from "@/lib/timer";
 import { audio_init, audio_tick } from "./audio/apu";
-import { audio_get_queued_sample_count } from "./audio/queue";
+import { T_CYCLES_PER_FRAME, TARGET_FRAME_MS } from "./common";
 
 export type emu_context = {
   paused: boolean;
@@ -39,7 +39,8 @@ const listeners = new Set<emu_listener>();
 
 let initialized = false;
 let raf_handle: number | null = null;
-let timeout_handle: ReturnType<typeof setTimeout> | null = null;
+let last_loop_time: number | null = null;
+let frame_time_accum = 0;
 let fps_frame_count = 0;
 let fps_last_time = 0;
 
@@ -104,29 +105,23 @@ function cancel_loop(): void {
     cancelAnimationFrame(raf_handle);
     raf_handle = null;
   }
-  if (timeout_handle !== null) {
-    clearTimeout(timeout_handle);
-    timeout_handle = null;
-  }
+
+  last_loop_time = null;
+  frame_time_accum = 0;
 }
 
 function schedule_loop(): void {
-  if (
-    raf_handle !== null ||
-    timeout_handle !== null ||
-    !ctx.running ||
-    ctx.die
-  ) {
+  if (raf_handle !== null || !ctx.running || ctx.die) {
     return;
   }
 
   raf_handle = requestAnimationFrame(run_loop);
 }
 
-// Game Boy: ~4194304 Hz / 59.7 FPS = ~70224 M-cycles per frame
-const T_CYCLES_PER_FRAME = 70224;
-const GB_FRAME_RATE = 4_194_304 / T_CYCLES_PER_FRAME;
-const TARGET_FRAME_MS = 1000 / GB_FRAME_RATE;
+// Frames to run in one callback before giving up on catching up
+const MAX_CATCH_UP_FRAMES = 4;
+// A longer gap (tab hidden, debugger, GC) is skipped instead of caught up
+const MAX_LOOP_GAP_MS = 250;
 
 export function emu_cycles(cpu_cycles: number): void {
   for (let i = 0; i < cpu_cycles; i++) {
@@ -144,14 +139,14 @@ function run_one_frame(): void {
   ppu_update_dirty_tiles();
 
   const start_frame = ppu_get_context().current_frame;
+  const start_ticks = ctx.ticks;
 
-  let safety = 0;
-
+  // Bounded by T-cycles so a frame with the LCD off still takes one frame of time
   while (
     ctx.running &&
     !ctx.paused &&
     !ctx.die &&
-    safety < T_CYCLES_PER_FRAME
+    ctx.ticks - start_ticks < T_CYCLES_PER_FRAME
   ) {
     const ok = cpu_step();
 
@@ -161,8 +156,6 @@ function run_one_frame(): void {
       return;
     }
 
-    safety++;
-
     if (ppu_get_context().current_frame !== start_frame) {
       break;
     }
@@ -171,7 +164,9 @@ function run_one_frame(): void {
   ctx.current_frame = ppu_get_context().current_frame;
 }
 
-function run_loop(): void {
+// Paced by wall-clock time instead of rAF ticks, so emulation (and audio
+// production) runs at the real Game Boy rate on any display refresh rate.
+function run_loop(now: number): void {
   raf_handle = null;
 
   if (!ctx.running || ctx.die) {
@@ -179,36 +174,44 @@ function run_loop(): void {
   }
 
   if (ctx.paused) {
+    last_loop_time = null;
     schedule_loop();
     return;
   }
 
-  const frame_start = get_now();
+  let elapsed = last_loop_time === null ? TARGET_FRAME_MS : now - last_loop_time;
+  last_loop_time = now;
 
-  // Run one Game Boy frame
-  run_one_frame();
-
-  update_fps();
-
-  // Pump audio immediately
-  audio_pump_fn?.();
-
-  emit_update();
-
-  // Pace to ~60 FPS
-  const elapsed = get_now() - frame_start;
-  const delay = Math.max(0, TARGET_FRAME_MS - elapsed);
-
-  if (delay > 0 && ctx.running && !ctx.die && !ctx.paused) {
-    timeout_handle = setTimeout(() => {
-      timeout_handle = null;
-      if (ctx.running && !ctx.die && !ctx.paused) {
-        schedule_loop();
-      }
-    }, delay);
-  } else {
-    schedule_loop();
+  if (elapsed > MAX_LOOP_GAP_MS) {
+    elapsed = TARGET_FRAME_MS;
   }
+
+  frame_time_accum += elapsed;
+
+  let frames = 0;
+
+  while (frame_time_accum >= TARGET_FRAME_MS && frames < MAX_CATCH_UP_FRAMES) {
+    run_one_frame();
+    update_fps();
+    frame_time_accum -= TARGET_FRAME_MS;
+    frames++;
+
+    if (!ctx.running) {
+      break;
+    }
+  }
+
+  // Too far behind to catch up; drop the backlog rather than spiral
+  if (frames === MAX_CATCH_UP_FRAMES) {
+    frame_time_accum = 0;
+  }
+
+  if (frames > 0) {
+    audio_pump_fn?.();
+    emit_update();
+  }
+
+  schedule_loop();
 }
 
 export function emu_get_context(): Readonly<emu_context> {

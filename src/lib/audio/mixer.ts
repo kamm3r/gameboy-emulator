@@ -4,6 +4,10 @@ import { audio_push_sample } from "./queue";
 import { ctx } from "./state";
 import { wave_output } from "./wave";
 
+const VOLUME_LUT: Float64Array = new Float64Array([
+  0.03125, 0.0625, 0.09375, 0.125, 0.15625, 0.1875, 0.21875, 0.25,
+]);
+
 function high_pass_left(input: number): number {
   const output = input - ctx.hpf_cap_l;
   ctx.hpf_cap_l = input - output * 0.996;
@@ -62,11 +66,12 @@ export function mix_and_push_sample(): void {
     right += c4;
   }
 
-  const lv = (((ctx.nr50 >> 4) & 7) + 1) / 8;
-  const rv = ((ctx.nr50 & 7) + 1) / 8;
+  const nr50 = ctx.nr50;
+  const lv = VOLUME_LUT[(nr50 >> 4) & 7];
+  const rv = VOLUME_LUT[nr50 & 7];
 
-  left *= lv * 0.25;
-  right *= rv * 0.25;
+  left *= lv;
+  right *= rv;
 
   left = high_pass_left(left);
   right = high_pass_right(right);

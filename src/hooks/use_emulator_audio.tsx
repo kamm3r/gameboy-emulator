@@ -7,6 +7,7 @@ import {
 } from "@/lib/audio/queue";
 import {
   audio_set_max_buffered_samples,
+  audio_set_rate_adjust,
   audio_set_sample_rate,
 } from "@/lib/audio/apu";
 import { emu_set_audio_pump } from "@/lib/emu";
@@ -17,8 +18,11 @@ const GAIN_VALUE = 0.35;
 // Increased for more headroom against main-thread jank.
 const TARGET_WORKLET_BUFFER_SECONDS = 0.15;
 
-// Main-thread pump interval. Using rAF for more reliable timing.
+// Main-thread pump interval (backup for when frames are not running)
 const PUMP_INTERVAL_MS = 16;
+
+// How strongly buffer level error steers the APU sample rate
+const RATE_CONTROL_GAIN = 0.005;
 
 type WorkletStatus = {
   type: "status";
@@ -51,15 +55,16 @@ export function useEmulatorAudio() {
       audioCtx.sampleRate * TARGET_WORKLET_BUFFER_SECONDS,
     );
 
-    const needed = targetBuffered - workletAvailableRef.current;
-
-    if (needed <= 0) {
-      return;
-    }
-
     const available = audio_get_queued_sample_count();
 
-    if (available <= 0) {
+    // Steer production rate toward the target fill level (total buffered audio)
+    const fill = workletAvailableRef.current + available;
+    const error = (fill - targetBuffered) / targetBuffered;
+    audio_set_rate_adjust(1 + Math.max(-1, Math.min(1, error)) * RATE_CONTROL_GAIN);
+
+    const needed = targetBuffered - workletAvailableRef.current;
+
+    if (needed <= 0 || available <= 0) {
       return;
     }
 
@@ -78,6 +83,10 @@ export function useEmulatorAudio() {
       },
       [left.buffer, right.buffer],
     );
+
+    // Account for what we just sent until the next status report arrives,
+    // otherwise back-to-back pumps overfill the worklet and it drops samples
+    workletAvailableRef.current += left.length;
   }, []);
 
   useEffect(() => {

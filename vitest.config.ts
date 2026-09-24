@@ -9,5 +9,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // ROM tests emulate millions of cycles
+    testTimeout: 120_000,
   },
 });

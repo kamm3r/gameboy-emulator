@@ -151,7 +151,7 @@ export function formatter(
 ): string {
   return formatString.replace(
     /%(-?)(\d+)?(l)?(\d*)([sdX])/g,
-    (match, align, width, long, precision, type) => {
+    (match, align, width, _long, _precision, type) => {
       const value = args.shift();
 
       if (value === undefined) {

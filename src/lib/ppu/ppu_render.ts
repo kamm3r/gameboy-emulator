@@ -1,118 +1,15 @@
 import { XRES, YRES } from "../common";
 import { lcd_get_context } from "../lcd";
-import {
-  type oam_entry,
-  ppu_get_context,
-  ppu_resolve_bg_tile_index,
-} from "./ppu";
+import { ppu_get_context, ppu_update_dirty_tiles } from "./ppu";
 
-type sprite_pixel = {
-  color_id: number;
-  color: number;
-  bg_priority: boolean;
-};
-
-function get_sprite_pixel(
-  sprite: oam_entry,
-  screen_x: number,
-  screen_y: number,
-  sprite_height: number,
-  vram: Uint8Array,
-  sp1_colors: [number, number, number, number],
-  sp2_colors: [number, number, number, number],
-): sprite_pixel | null {
-  const sprite_x = sprite.x - 8;
-  const sprite_y = sprite.y - 16;
-
-  let px = screen_x - sprite_x;
-  let py = screen_y - sprite_y;
-
-  if (px < 0 || px >= 8 || py < 0 || py >= sprite_height) {
-    return null;
-  }
-
-  const attr = sprite.attributes;
-
-  if ((attr & 0x20) !== 0) {
-    px = 7 - px;
-  }
-
-  if ((attr & 0x40) !== 0) {
-    py = sprite_height - 1 - py;
-  }
-
-  let tile = sprite.tile;
-
-  if (sprite_height === 16) {
-    tile &= 0xfe;
-
-    if (py >= 8) {
-      tile++;
-      py -= 8;
-    }
-  }
-
-  const row_addr = (tile << 4) + py * 2;
-  const low = vram[row_addr];
-  const high = vram[row_addr + 1];
-  const bit = 7 - px;
-
-  const color_id =
-    ((low >> bit) & 0x01) | (((high >> bit) & 0x01) << 1);
-
-  if (color_id === 0) {
-    return null;
-  }
-
-  const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
-
-  return {
-    color_id,
-    color: palette[color_id],
-    bg_priority: (attr & 0x80) !== 0,
-  };
-}
-
-function find_top_sprite_pixel(
-  sprites: oam_entry[],
-  sprite_count: number,
-  screen_x: number,
-  screen_y: number,
-  sprite_height: number,
-  vram: Uint8Array,
-  sp1_colors: [number, number, number, number],
-  sp2_colors: [number, number, number, number],
-): sprite_pixel | null {
-  for (let i = 0; i < sprite_count; i++) {
-    const sprite = sprites[i];
-    const sprite_x = sprite.x - 8;
-
-    if (screen_x < sprite_x || screen_x >= sprite_x + 8) {
-      continue;
-    }
-
-    const pixel = get_sprite_pixel(
-      sprite,
-      screen_x,
-      screen_y,
-      sprite_height,
-      vram,
-      sp1_colors,
-      sp2_colors,
-    );
-
-    if (pixel) {
-      return pixel;
-    }
-  }
-
-  return null;
-}
+// Module-level scratch to avoid allocations
+const sprite_color_ids = new Uint8Array(XRES);
+const sprite_colors = new Uint32Array(XRES);
+const sprite_bg_priority = new Uint8Array(XRES);
 
 export function render_scanline(): void {
   const lcd = lcd_get_context();
   const ppu = ppu_get_context();
-
   const ly = lcd.ly;
 
   if (ly >= YRES) {
@@ -120,11 +17,13 @@ export function render_scanline(): void {
     return;
   }
 
+  // Pick up tile data written since the last scanline (mid-frame VRAM updates)
+  ppu_update_dirty_tiles();
+
   const lcdc = lcd.lcdc;
   const vram = ppu.vram;
-  const decoded_tiles = ppu.decoded_tiles;
+  const decoded = ppu.decoded_tiles;
   const video_buffer = ppu.video_buffer;
-
   const bg_colors = lcd.bg_colors;
   const sp1_colors = lcd.sp1_colors;
   const sp2_colors = lcd.sp2_colors;
@@ -132,83 +31,136 @@ export function render_scanline(): void {
   const bg_enabled = (lcdc & 0x01) !== 0;
   const obj_enabled = (lcdc & 0x02) !== 0;
   const sprite_height = (lcdc & 0x04) !== 0 ? 16 : 8;
-
   const bg_map_base = (lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
-  const signed_tile_mode = (lcdc & 0x10) === 0;
-
+  const unsigned_tiles = (lcdc & 0x10) !== 0;
   const win_enabled = (lcdc & 0x20) !== 0;
   const win_map_base = (lcdc & 0x40) !== 0 ? 0x1c00 : 0x1800;
   const win_left = lcd.win_x - 7;
 
   const window_visible =
-    bg_enabled && win_enabled && lcd.win_x <= 166 && lcd.win_y < YRES;
-
-  const line_offset = ly * XRES;
+    bg_enabled && win_enabled && lcd.win_x <= 166 && ly >= lcd.win_y;
 
   const scx = lcd.scroll_x;
   const scy = lcd.scroll_y;
-  const wy = lcd.win_y;
   const window_line = ppu.window_line;
+  const line_offset = ly * XRES;
 
-  const line_sprites = ppu.line_sprites;
-  const line_sprite_count = ppu.line_sprite_count;
+  // --- Pass 1: rasterize sprites into line buffers (no per-pixel allocs) ---
+  let has_sprites = false;
+  if (obj_enabled) {
+    sprite_color_ids.fill(0);
+    const sprites = ppu.line_sprites;
+    const count = ppu.line_sprite_count;
 
+    // Iterate sprites in reverse priority so earlier sprites overwrite later ones.
+    // line_sprites is already sorted by priority (lowest index = highest prio).
+    // We want highest priority to win, so iterate from last to first and overwrite.
+    for (let i = count - 1; i >= 0; i--) {
+      const sprite = sprites[i];
+      const sx = sprite.x - 8;
+      const sy = sprite.y - 16;
+      let py = ly - sy;
+      if (py < 0 || py >= sprite_height) continue;
+
+      const attr = sprite.attributes;
+      const x_flip = (attr & 0x20) !== 0;
+      const y_flip = (attr & 0x40) !== 0;
+      const bg_prio = (attr & 0x80) !== 0 ? 1 : 0;
+      const palette = (attr & 0x10) !== 0 ? sp2_colors : sp1_colors;
+
+      if (y_flip) py = sprite_height - 1 - py;
+
+      let tile = sprite.tile;
+      if (sprite_height === 16) {
+        tile &= 0xfe;
+        if (py >= 8) {
+          tile++;
+          py -= 8;
+        }
+      }
+
+      const row_base = (tile << 6) + (py << 3);
+
+      for (let px = 0; px < 8; px++) {
+        const screen_x = sx + px;
+        if (screen_x < 0 || screen_x >= XRES) continue;
+
+        const tx = x_flip ? 7 - px : px;
+        const cid = decoded[row_base + tx];
+        if (cid === 0) continue;
+
+        sprite_color_ids[screen_x] = cid;
+        sprite_colors[screen_x] = palette[cid];
+        sprite_bg_priority[screen_x] = bg_prio;
+        has_sprites = true;
+      }
+    }
+  }
+
+  // --- Pass 2: render BG/Window + composite sprites ---
   let used_window = false;
+  const bg_y = (ly + scy) & 0xff;
+  const bg_tile_row = (bg_y >> 3) * 32;
+  const bg_tile_y = bg_y & 7;
+  const win_tile_row = (window_line >> 3) * 32;
+  const win_tile_y = window_line & 7;
+
+  // Cache last tile lookup so we don't refetch every pixel
+  let last_tile_col = -1;
+  let last_map_base = -1;
+  let last_use_window = false;
+  let cached_row_base = 0;
 
   for (let x = 0; x < XRES; x++) {
     let bg_color_id = 0;
     let final_color = bg_colors[0];
 
-    const use_window = window_visible && ly >= wy && x >= win_left;
-
-    if (use_window) {
-      used_window = true;
-    }
+    const use_window = window_visible && x >= win_left;
+    if (use_window) used_window = true;
 
     if (bg_enabled) {
-      let pixel_x: number;
-      let pixel_y: number;
-      let map_base: number;
+      let pixel_x: number, tile_y: number, map_row: number, map_base: number;
 
       if (use_window) {
         pixel_x = x - win_left;
-        pixel_y = window_line;
+        tile_y = win_tile_y;
+        map_row = win_tile_row;
         map_base = win_map_base;
       } else {
         pixel_x = (x + scx) & 0xff;
-        pixel_y = (ly + scy) & 0xff;
+        tile_y = bg_tile_y;
+        map_row = bg_tile_row;
         map_base = bg_map_base;
       }
 
       const tile_col = pixel_x >> 3;
-      const tile_row = pixel_y >> 3;
       const tile_x = pixel_x & 7;
-      const tile_y = pixel_y & 7;
 
-      const tile_id = vram[map_base + tile_row * 32 + tile_col];
+      if (
+        tile_col !== last_tile_col ||
+        map_base !== last_map_base ||
+        use_window !== last_use_window
+      ) {
+        const tile_id = vram[map_base + map_row + tile_col];
+        const tile_index = unsigned_tiles
+          ? tile_id
+          : tile_id < 128
+            ? tile_id + 256
+            : tile_id;
+        cached_row_base = (tile_index << 6) + (tile_y << 3);
+        last_tile_col = tile_col;
+        last_map_base = map_base;
+        last_use_window = use_window;
+      }
 
-      const tile_index = signed_tile_mode
-        ? ppu_resolve_bg_tile_index(tile_id, lcdc)
-        : tile_id;
-
-      bg_color_id = decoded_tiles[(tile_index << 6) + tile_y * 8 + tile_x];
+      bg_color_id = decoded[cached_row_base + tile_x];
       final_color = bg_colors[bg_color_id];
     }
 
-    if (obj_enabled && line_sprite_count > 0) {
-      const sprite = find_top_sprite_pixel(
-        line_sprites,
-        line_sprite_count,
-        x,
-        ly,
-        sprite_height,
-        vram,
-        sp1_colors,
-        sp2_colors,
-      );
-
-      if (sprite && (!sprite.bg_priority || bg_color_id === 0)) {
-        final_color = sprite.color;
+    if (has_sprites) {
+      const cid = sprite_color_ids[x];
+      if (cid !== 0 && (sprite_bg_priority[x] === 0 || bg_color_id === 0)) {
+        final_color = sprite_colors[x];
       }
     }
 

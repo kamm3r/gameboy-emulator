@@ -19,6 +19,7 @@ export type ppu_context = {
 
   decoded_tiles: Uint8Array;
   dirty_tiles: Uint8Array;
+  has_dirty_tiles: boolean;
 
   line_sprites: oam_entry[];
   line_sprite_count: number;
@@ -44,6 +45,7 @@ const ctx: ppu_context = {
 
   decoded_tiles: new Uint8Array(384 * 64),
   dirty_tiles: new Uint8Array(384),
+  has_dirty_tiles: true,
 
   line_sprites: new Array<oam_entry>(10),
   line_sprite_count: 0,
@@ -81,6 +83,7 @@ export function ppu_init(): void {
   ctx.video_buffer.fill(0);
   ctx.decoded_tiles.fill(0);
   ctx.dirty_tiles.fill(1);
+  ctx.has_dirty_tiles = true;
 
   lcd_init();
 }
@@ -141,6 +144,7 @@ export function ppu_vram_write(address: number, value: number): void {
 
   if (offset < 0x1800) {
     ctx.dirty_tiles[offset >> 4] = 1;
+    ctx.has_dirty_tiles = true;
   }
 }
 
@@ -171,6 +175,11 @@ function decode_tile(tile: number): void {
 }
 
 export function ppu_update_dirty_tiles(): void {
+  if (!ctx.has_dirty_tiles) {
+    return;
+  }
+
+  ctx.has_dirty_tiles = false;
   const dirty = ctx.dirty_tiles;
 
   for (let tile = 0; tile < 384; tile++) {

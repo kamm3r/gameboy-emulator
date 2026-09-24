@@ -1,7 +1,7 @@
 import { in_type, type RegType, type InType } from "@/lib/cpu/instructions";
 import { type cpu_context } from "@/lib/cpu/cpu";
-import { bus_read, bus_write, bus_write16 } from "@/lib/memory/bus";
-import { cpu_read_register, cpu_read_register8, cpu_set_register, cpu_set_register8 } from "@/lib/cpu/cpu_util";
+import { bus_read, bus_write } from "@/lib/memory/bus";
+import { cpu_read_register, cpu_read_register8, cpu_set_register } from "@/lib/cpu/cpu_util";
 import { stack_pop, stack_push, stack_push16 } from "@/lib/stack";
 import { emu_cycles } from "@/lib/emu";
 
@@ -101,12 +101,16 @@ export function proc_cb(ctx: cpu_context): void {
   const reg = decode_reg(op & 0b111);
   const bit = (op >> 3) & 0b111;
   const bit_op = (op >> 6) & 0b11;
+
+  // (HL) adds a read cycle, and a write cycle for everything except BIT
+  if (reg === "RT_HL") {
+    emu_cycles(1);
+  }
+
   let regVal = cpu_read_register8(ctx, reg);
 
-  emu_cycles(1);
-
-  if (reg === "RT_HL") {
-    emu_cycles(2);
+  if (reg === "RT_HL" && bit_op !== 1) {
+    emu_cycles(1);
   }
 
   switch (bit_op) {
@@ -344,6 +348,9 @@ export function proc_ld(ctx: cpu_context): void {
     const src = cpu_read_register(ctx, ctx.current_instruction?.reg_2!);
     const offset = ctx.fetched_data & 0xff;
 
+    // LD HL,SP+e8 has an internal cycle
+    emu_cycles(1);
+
     const hflag = (src & 0x0f) + (offset & 0x0f) >= 0x10;
     const cflag = (src & 0xff) + (offset & 0xff) >= 0x100;
 
@@ -354,6 +361,14 @@ export function proc_ld(ctx: cpu_context): void {
       (src + ((offset & 0x80) ? offset - 0x100 : offset)) & 0xffff,
     );
     return;
+  }
+
+  // LD SP,HL takes an extra internal cycle
+  if (
+    ctx.current_instruction?.reg_1 === "RT_SP" &&
+    ctx.current_instruction?.reg_2 === "RT_HL"
+  ) {
+    emu_cycles(1);
   }
 
   cpu_set_register(ctx, ctx.current_instruction?.reg_1!, ctx.fetched_data);
@@ -409,7 +424,11 @@ export function goto_address(
     }
 
     ctx.registers.PC = address & 0xffff;
-    emu_cycles(1);
+
+    // JP HL has no internal delay cycle
+    if (ctx.current_instruction?.mode !== "AM_R") {
+      emu_cycles(1);
+    }
   }
 }
 
@@ -437,7 +456,9 @@ export function proc_rst(ctx: cpu_context): void {
 }
 
 export function proc_ret(ctx: cpu_context): void {
-  if (ctx.current_instruction?.cond !== "CT_NONE") {
+  const cond = ctx.current_instruction?.cond;
+
+  if (cond != null && cond !== "CT_NONE") {
     emu_cycles(1);
   }
 
@@ -496,7 +517,7 @@ export function proc_inc(ctx: cpu_context): void {
     ctx.current_instruction?.reg_1 === "RT_HL" &&
     ctx.current_instruction?.mode === "AM_MR"
   ) {
-    value = (bus_read(cpu_read_register(ctx, "RT_HL")) + 1) & 0xff;
+    value = (ctx.fetched_data + 1) & 0xff;
     bus_write(cpu_read_register(ctx, "RT_HL"), value);
   } else {
     cpu_set_register(ctx, ctx.current_instruction?.reg_1!, value);
@@ -527,7 +548,7 @@ export function proc_dec(ctx: cpu_context): void {
     ctx.current_instruction?.reg_1 === "RT_HL" &&
     ctx.current_instruction?.mode === "AM_MR"
   ) {
-    value = (bus_read(cpu_read_register(ctx, "RT_HL")) - 1) & 0xff;
+    value = (ctx.fetched_data - 1) & 0xff;
     bus_write(cpu_read_register(ctx, "RT_HL"), value);
   } else {
     cpu_set_register(ctx, ctx.current_instruction?.reg_1!, value);
@@ -566,7 +587,7 @@ export function proc_sbc(ctx: cpu_context): void {
   const carry = (ctx.registers.F & 0x10) !== 0 ? 1 : 0;
   const value = (ctx.fetched_data & 0xff) + carry;
 
-  const z = regValue - value === 0 ? 1 : 0;
+  const z = ((regValue - value) & 0xff) === 0 ? 1 : 0;
   const h =
     ((regValue & 0x0f) - (ctx.fetched_data & 0x0f) - carry) < 0 ? 1 : 0;
   const c = regValue - (ctx.fetched_data & 0xff) - carry < 0 ? 1 : 0;
@@ -603,6 +624,8 @@ export function proc_add(ctx: cpu_context): void {
   }
 
   if (reg === "RT_SP") {
+    // ADD SP,e8 has two internal cycles
+    emu_cycles(1);
     value = current + toSigned8(ctx.fetched_data);
   }
 

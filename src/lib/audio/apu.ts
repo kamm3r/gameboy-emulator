@@ -274,6 +274,23 @@ export function audio_set_sample_rate(sample_rate: number): void {
   ctx.sample_cycle_accum = 0;
 }
 
+// Dynamic rate control: ratio > 1 produces fewer samples, < 1 more.
+// Keeps the output buffer level steady despite host clock drift.
+const MAX_RATE_ADJUST = 0.005;
+
+export function audio_set_rate_adjust(ratio: number): void {
+  if (!Number.isFinite(ratio)) {
+    return;
+  }
+
+  const clamped = Math.min(
+    1 + MAX_RATE_ADJUST,
+    Math.max(1 - MAX_RATE_ADJUST, ratio),
+  );
+
+  ctx.cycles_per_sample = (CPU_HZ / ctx.sample_rate) * clamped;
+}
+
 export function audio_set_max_buffered_samples(max: number): void {
   if (!Number.isFinite(max) || max <= 0) {
     return;
