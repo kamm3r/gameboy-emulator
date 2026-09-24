@@ -28,12 +28,7 @@ import {
 } from "../common";
 import { mix_and_push_sample } from "./mixer";
 import { tick_noise, trigger_noise } from "./noise";
-import {
-  audio_clear_samples,
-  audio_consume_samples,
-  audio_get_queued_sample_count,
-  trim_audio_queue,
-} from "./queue";
+import { audio_clear_samples, trim_audio_queue } from "./queue";
 import { envelope_dac_on, trigger_pulse, tick_pulse } from "./pulse";
 import {
   ctx,
@@ -54,123 +49,46 @@ import {
 } from "./wave";
 import { frame_sequencer_tick } from "./frame_sequencer";
 
-function next_step_clocks_length(): boolean {
-  const next = (ctx.frame_seq_step + 1) & 7;
-  return next === 0 || next === 2 || next === 4 || next === 6;
-}
-
+// True when the next frame sequencer step won't clock the length counters
 function in_first_half(): boolean {
-  return !next_step_clocks_length();
+  return ((ctx.frame_seq_step + 1) & 1) === 1;
 }
 
-function handle_length_nrx4(
-  lc: length_counter,
-  ch_enabled: boolean,
-  old_len_en: boolean,
-  new_len_en: boolean,
-  trigger: boolean,
+// NRx4 write: length enable (with the extra-clock quirk) and trigger
+function write_nrx4(
+  ch: { enabled: boolean; length: length_counter },
+  value: number,
   max_length: number,
-  do_trigger: () => void,
-): boolean {
+  trigger_channel: () => void,
+): void {
+  const lc = ch.length;
+  const len_en = (value & 0x40) !== 0;
+  const trigger = (value & 0x80) !== 0;
   const first = in_first_half();
 
-  if (!old_len_en && new_len_en && first && lc.counter > 0) {
+  if (!lc.enabled && len_en && first && lc.counter > 0) {
     lc.counter--;
 
     if (lc.counter === 0 && !trigger) {
-      ch_enabled = false;
+      ch.enabled = false;
     }
   }
 
-  lc.enabled = new_len_en;
+  lc.enabled = len_en;
 
   if (!trigger) {
-    return ch_enabled;
+    return;
   }
 
   if (lc.counter === 0) {
     lc.counter = max_length;
 
-    if (new_len_en && first) {
+    if (len_en && first) {
       lc.counter--;
     }
   }
 
-  do_trigger();
-
-  return ch_enabled;
-}
-
-function write_nrx4_pulse(
-  ch: pulse_channel,
-  value: number,
-  with_sweep: boolean,
-): void {
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
-
-  const result = handle_length_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    64,
-    () => {
-      trigger_pulse(ch, with_sweep);
-    },
-  );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
-}
-
-function write_nrx4_wave(value: number): void {
-  const ch = ctx.ch3;
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
-
-  const result = handle_length_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    256,
-    () => {
-      trigger_wave();
-    },
-  );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
-}
-
-function write_nrx4_noise(value: number): void {
-  const ch = ctx.ch4;
-  const old_len_en = ch.length.enabled;
-  const new_len_en = (value & 0x40) !== 0;
-  const trigger = (value & 0x80) !== 0;
-
-  const result = handle_length_nrx4(
-    ch.length,
-    ch.enabled,
-    old_len_en,
-    new_len_en,
-    trigger,
-    64,
-    () => {
-      trigger_noise();
-    },
-  );
-
-  if (!trigger) {
-    ch.enabled = result;
-  }
+  trigger_channel();
 }
 
 function write_envelope_reg(
@@ -326,84 +244,64 @@ export function audio_on_div_falling_edge(): void {
   frame_sequencer_tick();
 }
 
+function length_enable_bit(lc: length_counter): number {
+  return (lc.enabled ? 0x40 : 0) | 0xbf;
+}
+
 export function audio_read(address: number): number {
+  if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
+    return wave_ram_read(address - WAVE_RAM_START);
+  }
+
+  // Unused bits read back as 1
   switch (address) {
-    case NR10:
-      return ctx.ch1.nrx0 | 0x80;
-
-    case NR11:
-      return ctx.ch1.nrx1 | 0x3f;
-
-    case NR12:
-      return ctx.ch1.nrx2;
-
-    case NR13:
-      return 0xff;
-
-    case NR14:
-      return (ctx.ch1.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case 0xff15:
-      return 0xff;
-
-    case NR21:
-      return ctx.ch2.nrx1 | 0x3f;
-
-    case NR22:
-      return ctx.ch2.nrx2;
-
-    case NR23:
-      return 0xff;
-
-    case NR24:
-      return (ctx.ch2.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case NR30:
-      return ctx.ch3.nr30 | 0x7f;
-
-    case NR31:
-      return 0xff;
-
-    case NR32:
-      return ctx.ch3.nr32 | 0x9f;
-
-    case NR33:
-      return 0xff;
-
-    case NR34:
-      return (ctx.ch3.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case 0xff1f:
-      return 0xff;
-
-    case NR41:
-      return 0xff;
-
-    case NR42:
-      return ctx.ch4.nr42;
-
-    case NR43:
-      return ctx.ch4.nr43;
-
-    case NR44:
-      return (ctx.ch4.length.enabled ? 0x40 : 0) | 0xbf;
-
-    case NR50:
-      return ctx.nr50;
-
-    case NR51:
-      return ctx.nr51;
-
+    case NR10: return ctx.ch1.nrx0 | 0x80;
+    case NR11: return ctx.ch1.nrx1 | 0x3f;
+    case NR12: return ctx.ch1.nrx2;
+    case NR14: return length_enable_bit(ctx.ch1.length);
+    case NR21: return ctx.ch2.nrx1 | 0x3f;
+    case NR22: return ctx.ch2.nrx2;
+    case NR24: return length_enable_bit(ctx.ch2.length);
+    case NR30: return ctx.ch3.nr30 | 0x7f;
+    case NR32: return ctx.ch3.nr32 | 0x9f;
+    case NR34: return length_enable_bit(ctx.ch3.length);
+    case NR42: return ctx.ch4.nr42;
+    case NR43: return ctx.ch4.nr43;
+    case NR44: return length_enable_bit(ctx.ch4.length);
+    case NR50: return ctx.nr50;
+    case NR51: return ctx.nr51;
     case NR52:
       update_nr52();
       return ctx.nr52;
+    default: return 0xff; // write-only period/length registers and gaps
+  }
+}
 
+// NRx1-NRx4 of a pulse channel (reg = 1..4)
+function write_pulse(
+  ch: pulse_channel,
+  reg: number,
+  value: number,
+  with_sweep: boolean,
+): void {
+  switch (reg) {
+    case 1:
+      ch.nrx1 = value;
+      ch.duty = (value >> 6) & 0x03;
+      ch.length.counter = 64 - (value & 0x3f);
+      return;
+    case 2:
+      ch.nrx2 = value;
+      write_envelope_reg(ch.env, ch, value);
+      return;
+    case 3:
+      ch.nrx3 = value;
+      ch.period_value = (ch.period_value & 0x700) | value;
+      return;
     default:
-      if (address >= WAVE_RAM_START && address <= WAVE_RAM_END) {
-        return wave_ram_read(address - WAVE_RAM_START);
-      }
-
-      return 0xff;
+      ch.nrx4 = value & 0xc7;
+      ch.period_value = (ch.period_value & 0x0ff) | ((value & 0x07) << 8);
+      write_nrx4(ch, value, 64, () => trigger_pulse(ch, with_sweep));
   }
 }
 
@@ -472,49 +370,17 @@ export function audio_write(address: number, value: number): void {
     }
 
     case NR11:
-      ctx.ch1.nrx1 = value;
-      ctx.ch1.duty = (value >> 6) & 0x03;
-      ctx.ch1.length.counter = 64 - (value & 0x3f);
-      return;
-
     case NR12:
-      ctx.ch1.nrx2 = value;
-      write_envelope_reg(ctx.ch1.env, ctx.ch1, value);
-      return;
-
     case NR13:
-      ctx.ch1.nrx3 = value;
-      ctx.ch1.period_value = (ctx.ch1.period_value & 0x700) | value;
-      return;
-
     case NR14:
-      ctx.ch1.nrx4 = value & 0xc7;
-      ctx.ch1.period_value =
-        (ctx.ch1.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_pulse(ctx.ch1, value, true);
+      write_pulse(ctx.ch1, address - NR10, value, true);
       return;
 
     case NR21:
-      ctx.ch2.nrx1 = value;
-      ctx.ch2.duty = (value >> 6) & 0x03;
-      ctx.ch2.length.counter = 64 - (value & 0x3f);
-      return;
-
     case NR22:
-      ctx.ch2.nrx2 = value;
-      write_envelope_reg(ctx.ch2.env, ctx.ch2, value);
-      return;
-
     case NR23:
-      ctx.ch2.nrx3 = value;
-      ctx.ch2.period_value = (ctx.ch2.period_value & 0x700) | value;
-      return;
-
     case NR24:
-      ctx.ch2.nrx4 = value & 0xc7;
-      ctx.ch2.period_value =
-        (ctx.ch2.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_pulse(ctx.ch2, value, false);
+      write_pulse(ctx.ch2, address - NR21 + 1, value, false);
       return;
 
     case NR30:
@@ -546,7 +412,7 @@ export function audio_write(address: number, value: number): void {
       ctx.ch3.nr34 = value & 0xc7;
       ctx.ch3.period_value =
         (ctx.ch3.period_value & 0x0ff) | ((value & 0x07) << 8);
-      write_nrx4_wave(value);
+      write_nrx4(ctx.ch3, value, 256, trigger_wave);
       return;
 
     case NR41:
@@ -568,7 +434,7 @@ export function audio_write(address: number, value: number): void {
 
     case NR44:
       ctx.ch4.nr44 = value & 0xc0;
-      write_nrx4_noise(value);
+      write_nrx4(ctx.ch4, value, 64, trigger_noise);
       return;
 
     case NR50:
@@ -580,28 +446,3 @@ export function audio_write(address: number, value: number): void {
       return;
   }
 }
-
-export function audio_debug_state() {
-  update_nr52();
-
-  return {
-    enabled: ctx.enabled,
-    nr50: ctx.nr50,
-    nr51: ctx.nr51,
-    nr52: ctx.nr52,
-    queued: audio_get_queued_sample_count(),
-    sample_rate: ctx.sample_rate,
-    cycles_per_sample: ctx.cycles_per_sample,
-    frame_seq_step: ctx.frame_seq_step,
-    ch1_enabled: ctx.ch1.enabled,
-    ch2_enabled: ctx.ch2.enabled,
-    ch3_enabled: ctx.ch3.enabled,
-    ch4_enabled: ctx.ch4.enabled,
-  };
-}
-
-export {
-  audio_clear_samples,
-  audio_consume_samples,
-  audio_get_queued_sample_count,
-};
