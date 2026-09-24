@@ -3,7 +3,6 @@ import * as path from "path";
 import { inflateSync } from "zlib";
 import { cpu_get_context, cpu_step } from "../src/lib/cpu/cpu.js";
 import { bus_read, bus_write } from "../src/lib/memory/bus.js";
-import { dbg_clear, dbg_get_message } from "../src/lib/dbg.js";
 import { emu_init, emu_load_rom, emu_stop } from "../src/lib/emu.js";
 import { ppu_get_context } from "../src/lib/ppu/ppu.js";
 import { XRES, YRES } from "../src/lib/common.js";
@@ -35,7 +34,6 @@ function load(rom_path: string): void {
   const data = new Uint8Array(fs.readFileSync(rom_path));
 
   emu_init();
-  dbg_clear();
 
   if (!emu_load_rom(data, path.basename(rom_path))) {
     throw new Error(`Failed to load ROM ${rom_path}`);
@@ -88,7 +86,7 @@ export function run_serial_rom(rom_path: string, max_frames = 3000): rom_result 
     is_done: (serial) => /passed|failed/i.test(serial),
   });
 
-  const output = state.serial || dbg_get_message();
+  const output = state.serial;
 
   return {
     passed: /passed/i.test(output) && !/failed/i.test(output),

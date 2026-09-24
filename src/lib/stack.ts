@@ -14,10 +14,3 @@ export function stack_push16(value: number): void {
 export function stack_pop(): number {
   return bus_read(cpu_get_registers().SP++);
 }
-
-export function stack_pop16(): number {
-  const lo = stack_pop();
-  const hi = stack_pop();
-
-  return (hi << 8) | lo;
-}

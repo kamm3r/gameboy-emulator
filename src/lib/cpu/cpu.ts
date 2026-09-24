@@ -9,7 +9,6 @@ import {
   instruction_name,
 } from "@/lib/cpu/instructions";
 import { timer_get_context } from "@/lib/timer";
-import { dbg_update, dbg_print } from "@/lib/dbg";
 import { emu_cycles, emu_get_context } from "@/lib/emu";
 
 export type cpu_registers = {
@@ -44,18 +43,7 @@ export type cpu_context = {
 };
 
 const ctx: cpu_context = {
-  registers: {
-    A: 0,
-    F: 0,
-    B: 0,
-    C: 0,
-    D: 0,
-    E: 0,
-    H: 0,
-    L: 0,
-    PC: 0,
-    SP: 0,
-  },
+  registers: { A: 0, F: 0, B: 0, C: 0, D: 0, E: 0, H: 0, L: 0, PC: 0, SP: 0 },
 
   fetched_data: 0,
   memory_destination: 0,
@@ -75,16 +63,11 @@ const ctx: cpu_context = {
 const CPU_DEBUG = false;
 
 export function cpu_init(): void {
-  ctx.registers.PC = 0x0100;
-  ctx.registers.SP = 0xfffe;
-  ctx.registers.A = 0x01;
-  ctx.registers.F = 0xb0;
-  ctx.registers.B = 0x00;
-  ctx.registers.C = 0x13;
-  ctx.registers.D = 0x00;
-  ctx.registers.E = 0xd8;
-  ctx.registers.H = 0x01;
-  ctx.registers.L = 0x4d;
+  // DMG register state after the boot ROM
+  Object.assign(ctx.registers, {
+    A: 0x01, F: 0xb0, B: 0x00, C: 0x13, D: 0x00,
+    E: 0xd8, H: 0x01, L: 0x4d, PC: 0x0100, SP: 0xfffe,
+  });
 
   ctx.fetched_data = 0;
   ctx.memory_destination = 0;
@@ -103,87 +86,41 @@ export function cpu_init(): void {
   timer_get_context().div = 0xabcc;
 }
 
-export function fetch_instruction(): void {
-  ctx.current_opcode = bus_read(ctx.registers.PC) & 0xff;
-  ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
-  ctx.current_instruction = instruction_by_opcode(ctx.current_opcode) ?? null;
-}
+function trace(pc: number): void {
+  const r = ctx.registers;
+  const flags = ["Z", "N", "H", "C"]
+    .map((f, i) => (r.F & (0x80 >> i) ? f : "-"))
+    .join("");
 
-export function execute(): void {
-  const inst = ctx.current_instruction;
-
-  if (!inst) {
-    throw new Error(
-      `Unknown instruction ${ctx.current_opcode
-        .toString(16)
-        .padStart(2, "0")} at PC ${((ctx.registers.PC - 1) & 0xffff)
-        .toString(16)
-        .padStart(4, "0")}`,
-    );
-  }
-
-  const proc = instruction_get_processor(inst.type);
-
-  if (!proc) {
-    throw new Error(
-      `No processor for instruction ${instruction_name(
-        inst.type,
-      )} opcode=${ctx.current_opcode
-        .toString(16)
-        .padStart(2, "0")}`,
-    );
-  }
-
-  proc(ctx);
+  console.log(
+    formatter(
+      "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
+      emu_get_context().ticks,
+      pc,
+      instruction_name(ctx.current_instruction!.type),
+      ctx.current_opcode,
+      bus_read((pc + 1) & 0xffff),
+      bus_read((pc + 2) & 0xffff),
+      r.A, flags, r.B, r.C, r.D, r.E, r.H, r.L,
+    ),
+  );
 }
 
 export function cpu_step(): boolean {
   if (!ctx.halted) {
     const pc = ctx.registers.PC;
 
-    fetch_instruction();
+    ctx.current_opcode = bus_read(pc) & 0xff;
+    ctx.registers.PC = (pc + 1) & 0xffff;
+    ctx.current_instruction = instruction_by_opcode(ctx.current_opcode);
     emu_cycles(1);
     fetch_data(ctx);
 
-    if (CPU_DEBUG && ctx.current_instruction) {
-      const flags = `${ctx.registers.F & (1 << 7) ? "Z" : "-"}${
-        ctx.registers.F & (1 << 6) ? "N" : "-"
-      }${ctx.registers.F & (1 << 5) ? "H" : "-"}${
-        ctx.registers.F & (1 << 4) ? "C" : "-"
-      }`;
-
-      console.log(
-        formatter(
-          "%08lX - %04X: %-12s (%02X %02X %02X) A: %02X F: %s BC: %02X%02X DE: %02X%02X HL: %02X%02X\n",
-          emu_get_context().ticks,
-          pc,
-          instruction_name(ctx.current_instruction.type),
-          ctx.current_opcode,
-          bus_read((pc + 1) & 0xffff),
-          bus_read((pc + 2) & 0xffff),
-          ctx.registers.A,
-          flags,
-          ctx.registers.B,
-          ctx.registers.C,
-          ctx.registers.D,
-          ctx.registers.E,
-          ctx.registers.H,
-          ctx.registers.L,
-        ),
-      );
+    if (CPU_DEBUG) {
+      trace(pc);
     }
 
-    if (ctx.current_instruction === null) {
-      console.log(
-        formatter("Unknown Instruction! %02X\n", ctx.current_opcode),
-      );
-      return false;
-    }
-
-    dbg_update();
-    dbg_print();
-
-    execute();
+    instruction_get_processor(ctx.current_instruction.type)(ctx);
   } else {
     emu_cycles(1);
 
@@ -232,11 +169,4 @@ export function cpu_request_interrupt(interrupt: number): void {
   ctx.int_flags = (ctx.int_flags | interrupt) & 0xff;
 }
 
-export {
-  INT_VBLANK,
-  INT_LCD_STAT,
-  INT_TIMER,
-  INT_SERIAL,
-  INT_JOYPAD,
-  cpu_handle_interrupts,
-} from "@/lib/interrupts";
+export { INT_VBLANK, INT_LCD_STAT } from "@/lib/interrupts";
