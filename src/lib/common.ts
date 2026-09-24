@@ -1,7 +1,5 @@
 export const XRES = 160;
 export const YRES = 144;
-export const SCREEN_WIDTH = XRES;
-export const SCREEN_HEIGHT = YRES;
 
 export const ROM_BANK_SIZE = 0x4000;
 export const RAM_BANK_SIZE = 0x2000;
@@ -49,18 +47,6 @@ export const DUTY_PATTERNS: ReadonlyArray<ReadonlyArray<number>> = [
 ];
 
 export const NOISE_DIVISORS = [8, 16, 32, 48, 64, 80, 96, 112] as const;
-
-export const COLORS_DEFAULT: readonly [number, number, number, number] = [
-  0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000,
-];
-
-export function argb_to_css(color: number): string {
-  const r = (color >>> 16) & 0xff;
-  const g = (color >>> 8) & 0xff;
-  const b = color & 0xff;
-  const a = ((color >>> 24) & 0xff) / 255;
-  return `rgba(${r},${g},${b},${a})`;
-}
 
 export function BETWEEN(a: number, b: number, c: number): boolean {
   return a >= b && a <= c;

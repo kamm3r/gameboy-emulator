@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Bug, Pause, Play, Square } from "lucide-react";
-import {
-  emu_get_ticks,
-  emu_pause,
-  emu_resume,
-  emu_start,
-  emu_stop,
-} from "@/lib/emu";
+import { emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
 import { type gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
 import { useEmu } from "@/hooks/use_emu";
@@ -177,18 +171,6 @@ export function EmulatorView({ rom_name }: EmulatorViewProps) {
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
 
   const [show_debug, set_show_debug] = useState(false);
-
-  useEffect(() => {
-    let lastTicks = emu_get_ticks();
-
-    const id = window.setInterval(() => {
-      const ticks = emu_get_ticks();
-      console.log("ticks/sec", ticks - lastTicks);
-      lastTicks = ticks;
-    }, 1000);
-
-    return () => window.clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const canvas = canvas_ref.current;
