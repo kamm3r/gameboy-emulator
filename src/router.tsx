@@ -8,7 +8,7 @@ export function getRouter() {
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
     defaultNotFoundComponent: () => (
-      <p className="p-8 font-mono text-sm text-zinc-400">page not found</p>
+      <p className="p-8 font-mono text-sm text-muted-foreground">page not found</p>
     ),
   })
 

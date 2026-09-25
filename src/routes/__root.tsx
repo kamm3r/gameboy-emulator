@@ -11,7 +11,8 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        // viewport-fit=cover lets landscape phones use the area beside the notch
+        content: 'width=device-width, initial-scale=1, viewport-fit=cover',
       },
       { title: 'Game Boy Emulator' },
     ],

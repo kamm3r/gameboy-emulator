@@ -19,11 +19,12 @@ type view = {
 let main: view | null = null;
 let debug: view | null = null;
 
+// scale sets a fixed CSS size; without it the canvas is sized by CSS
 function make_view(
   canvas: HTMLCanvasElement,
   width: number,
   height: number,
-  scale: number,
+  scale?: number,
 ): view {
   const ctx = canvas.getContext("2d");
 
@@ -33,9 +34,12 @@ function make_view(
 
   canvas.width = width;
   canvas.height = height;
-  canvas.style.width = `${width * scale}px`;
-  canvas.style.height = `${height * scale}px`;
   ctx.imageSmoothingEnabled = false;
+
+  if (scale) {
+    canvas.style.width = `${width * scale}px`;
+    canvas.style.height = `${height * scale}px`;
+  }
 
   const image = new ImageData(width, height);
   return { ctx, canvas, image, pixels: new Uint32Array(image.data.buffer) };
@@ -51,11 +55,11 @@ function argb_to_abgr(c: number): number {
 export function ui_init(
   main_canvas: HTMLCanvasElement,
   debug_canvas?: HTMLCanvasElement | null,
-  scale = 4,
+  debug_scale = 2,
 ): void {
-  main = make_view(main_canvas, XRES, YRES, scale);
+  main = make_view(main_canvas, XRES, YRES);
   debug = debug_canvas
-    ? make_view(debug_canvas, DEBUG_W, DEBUG_H, scale)
+    ? make_view(debug_canvas, DEBUG_W, DEBUG_H, debug_scale)
     : null;
 }
 
