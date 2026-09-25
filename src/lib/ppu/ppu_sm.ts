@@ -25,26 +25,18 @@ function stat_interrupt_enabled(source: number): boolean {
   return (lcd_get_context().lcds & (1 << (source + 3))) !== 0;
 }
 
-function update_lyc_flag(): void {
+function set_ly(value: number): void {
   const lcd = lcd_get_context();
-
   const was_set = (lcd.lcds & 0x04) !== 0;
-  const is_set = lcd.ly === lcd.ly_compare;
 
-  if (is_set) {
-    lcd.lcds |= 0x04;
-  } else {
-    lcd.lcds &= ~0x04;
-  }
+  // lcd_set_ly also refreshes the LYC coincidence bit
+  lcd_set_ly(value & 0xff);
+
+  const is_set = (lcd.lcds & 0x04) !== 0;
 
   if (!was_set && is_set && stat_interrupt_enabled(SS_LYC)) {
     cpu_request_interrupt(INT_LCD_STAT);
   }
-}
-
-function set_ly(value: number): void {
-  lcd_set_ly(value & 0xff);
-  update_lyc_flag();
 }
 
 function set_mode(mode: number): void {
@@ -65,8 +57,7 @@ export function increment_ly(): void {
 
   ppu.window_was_rendered = false;
 
-  lcd_set_ly((lcd.ly + 1) & 0xff);
-  update_lyc_flag();
+  set_ly(lcd.ly + 1);
 }
 
 function sprite_comes_before(a: oam_entry, b: oam_entry): boolean {

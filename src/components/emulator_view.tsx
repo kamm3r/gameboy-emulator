@@ -1,352 +1,340 @@
 import { useEffect, useRef, useState } from "react";
-import { Bug, Pause, Play, Square } from "lucide-react";
 import {
-  emu_get_ticks,
-  emu_pause,
-  emu_resume,
-  emu_start,
-  emu_stop,
-} from "@/lib/emu";
+  Bug,
+  Gamepad2,
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  Square,
+  Upload,
+} from "lucide-react";
+import { emu_pause, emu_resume, emu_start, emu_stop } from "@/lib/emu";
 import { ui_destroy, ui_init, ui_update } from "@/lib/ui";
-import { type gamepad_button, gamepad_set_button } from "@/lib/input/gamepad";
+import { XRES, YRES } from "@/lib/common";
+import { cn } from "@/lib/utils";
 import { useEmu } from "@/hooks/use_emu";
 import { useEmulatorAudio } from "@/hooks/use_emulator_audio";
+import { useKeybinds } from "@/hooks/use_keybinds";
+import { useSetting } from "@/hooks/use_setting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { useKeybinds } from "@/hooks/use_keybinds";
+import { ActionButtons, DPad, PillButton, StartSelect } from "./touch_gamepad";
 import { KeybindSettings } from "./keybinds_settings";
 import {
   format_key_code,
   GAMEPAD_BUTTONS,
-  get_key_for_button,
+  get_keys_for_button,
 } from "@/lib/input/keybinds";
+import type { keybind_map } from "@/lib/input/keybinds";
 
 type EmulatorViewProps = {
   rom_name: string;
+  on_load_rom: (file: File) => void;
 };
 
-type StatusBadgeProps = {
-  status: "idle" | "running" | "paused";
-};
-
-function StatusBadge({ status }: StatusBadgeProps) {
-  if (status === "running") {
-    return (
-      <Badge className="bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15">
-        running
-      </Badge>
-    );
-  }
-
-  if (status === "paused") {
-    return (
-      <Badge className="bg-yellow-500/15 text-yellow-300 hover:bg-yellow-500/15">
-        paused
-      </Badge>
-    );
-  }
-
+export function LoadRomButton({
+  on_load_rom,
+  variant = "secondary",
+}: {
+  on_load_rom: (file: File) => void;
+  variant?: "default" | "secondary";
+}) {
   return (
-    <Badge variant="secondary" className="bg-zinc-800 text-zinc-400">
-      idle
-    </Badge>
+    <Button asChild variant={variant} size="sm">
+      <label className="cursor-pointer">
+        <Upload data-icon="inline-start" />
+        load rom
+        <input
+          type="file"
+          // octet-stream lets iOS pick .gb files it doesn't recognise
+          accept=".gb,.gbc,application/octet-stream"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) on_load_rom(file);
+            e.target.value = "";
+          }}
+        />
+      </label>
+    </Button>
   );
 }
 
-type PadButtonProps = {
-  button: gamepad_button;
+function StatusBadge({ running, paused }: { running: boolean; paused: boolean }) {
+  if (!running) return <Badge variant="outline">idle</Badge>;
+  if (paused) return <Badge variant="secondary">paused</Badge>;
+  return <Badge>running</Badge>;
+}
+
+function useFullscreen(ref: React.RefObject<HTMLElement | null>) {
+  const [active, set_active] = useState(false);
+  const [supported, set_supported] = useState(false);
+
+  useEffect(() => {
+    // iPhone Safari has no element fullscreen; hide the button there
+    set_supported(document.fullscreenEnabled);
+
+    const on_change = () =>
+      set_active(document.fullscreenElement === ref.current);
+    document.addEventListener("fullscreenchange", on_change);
+    return () => document.removeEventListener("fullscreenchange", on_change);
+  }, [ref]);
+
+  function toggle(): void {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void ref.current?.requestFullscreen();
+    }
+  }
+
+  return { active, supported, toggle };
+}
+
+function SettingSwitch({
+  id,
+  label,
+  icon: Icon,
+  checked,
+  onCheckedChange,
+  className,
+}: {
+  id: string;
   label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   className?: string;
-};
-
-function PadButton({ button, label, className = "" }: PadButtonProps) {
-  function press(e: React.PointerEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    gamepad_set_button(button, true);
-  }
-
-  function release(e: React.PointerEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    gamepad_set_button(button, false);
-  }
-
+}) {
   return (
-    <button
-      type="button"
-      onPointerDown={press}
-      onPointerUp={release}
-      onPointerCancel={release}
-      onPointerLeave={release}
-      onContextMenu={(e) => e.preventDefault()}
-      className={
-        "flex select-none items-center justify-center touch-none " +
-        "bg-zinc-800 font-medium text-zinc-200 transition " +
-        "hover:bg-zinc-700 active:scale-95 active:bg-zinc-600 " +
-        className
-      }
-    >
-      {label}
-    </button>
-  );
-}
-
-function GamepadControls() {
-  return (
-    <div className="flex items-center justify-between gap-8 py-2">
-      <div className="grid h-36 w-36 grid-cols-3 grid-rows-3 gap-1">
-        <div />
-        <PadButton button="up" label="▲" className="rounded-t-md" />
-        <div />
-
-        <PadButton button="left" label="◀" className="rounded-l-md" />
-        <div className="bg-zinc-800" />
-        <PadButton button="right" label="▶" className="rounded-r-md" />
-
-        <div />
-        <PadButton button="down" label="▼" className="rounded-b-md" />
-        <div />
-      </div>
-
-      <div className="flex gap-4">
-        <PadButton
-          button="select"
-          label="select"
-          className="h-8 w-20 rotate-[-25deg] rounded-full text-xs"
-        />
-
-        <PadButton
-          button="start"
-          label="start"
-          className="h-8 w-20 rotate-[-25deg] rounded-full text-xs"
-        />
-      </div>
-
-      <div className="flex rotate-[-25deg] items-center gap-4">
-        <PadButton
-          button="b"
-          label="B"
-          className="h-16 w-16 rounded-full bg-red-950 text-lg text-white hover:bg-red-900 active:bg-red-800"
-        />
-
-        <PadButton
-          button="a"
-          label="A"
-          className="h-16 w-16 rounded-full bg-red-950 text-lg text-white hover:bg-red-900 active:bg-red-800"
-        />
-      </div>
+    <div className={cn("flex items-center gap-2", className)}>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      <Label htmlFor={id} className="gap-1.5 text-muted-foreground">
+        <Icon className="size-3.5" />
+        {label}
+      </Label>
     </div>
   );
 }
-type KeyboardHelpProps = {
-  keybinds: Record<string, gamepad_button>;
-};
 
-function KeyboardHelp({ keybinds }: KeyboardHelpProps) {
+function KeyboardHints({ keybinds }: { keybinds: keybind_map }) {
   return (
-    <Card className="w-fit border-zinc-800 bg-zinc-950/70">
-      <CardContent className="pt-6">
-        <div className="font-mono text-xs leading-5 text-zinc-500">
-          <div className="mb-1 text-zinc-400">keyboard</div>
-
-          {GAMEPAD_BUTTONS.map(({ button, label }) => {
-            const key_code = get_key_for_button(keybinds, button);
-
-            return (
-              <div key={button}>
-                {label} — {format_key_code(key_code)}
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="hidden flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground mouse:flex">
+      {GAMEPAD_BUTTONS.map(({ button, label }) => (
+        <span key={button} className="flex items-center gap-1 whitespace-nowrap">
+          {label}
+          {get_keys_for_button(keybinds, button).map((code) => (
+            <kbd
+              key={code}
+              className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.7rem] text-foreground"
+            >
+              {format_key_code(code)}
+            </kbd>
+          ))}
+        </span>
+      ))}
+    </div>
   );
 }
 
-export function EmulatorView({ rom_name }: EmulatorViewProps) {
+export function EmulatorView({ rom_name, on_load_rom }: EmulatorViewProps) {
   useEmulatorAudio();
 
   const emu = useEmu();
   const { keybinds, set_keybinds } = useKeybinds();
+  const [show_debug, set_show_debug] = useSetting("gb.debug", false);
 
+  const stage_ref = useRef<HTMLDivElement | null>(null);
   const canvas_ref = useRef<HTMLCanvasElement | null>(null);
   const debug_canvas_ref = useRef<HTMLCanvasElement | null>(null);
-
-  const [show_debug, set_show_debug] = useState(false);
-
-  useEffect(() => {
-    let lastTicks = emu_get_ticks();
-
-    const id = window.setInterval(() => {
-      const ticks = emu_get_ticks();
-      console.log("ticks/sec", ticks - lastTicks);
-      lastTicks = ticks;
-    }, 1000);
-
-    return () => window.clearInterval(id);
-  }, []);
+  const fullscreen = useFullscreen(stage_ref);
 
   useEffect(() => {
-    const canvas = canvas_ref.current;
-    const debug_canvas = debug_canvas_ref.current;
+    if (!canvas_ref.current) return;
 
-    if (!canvas) {
-      return;
-    }
-
-    ui_init(canvas, debug_canvas, 2);
-
-    return () => {
-      ui_destroy();
-    };
+    ui_init(canvas_ref.current, debug_canvas_ref.current);
+    return () => ui_destroy();
   }, []);
 
   useEffect(() => {
     ui_update();
-  }, [emu.current_frame]);
+  }, [emu.current_frame, show_debug]);
 
   const has_rom = Boolean(rom_name);
-  const can_start = has_rom && !emu.running;
-  const can_pause = emu.running && !emu.paused;
-  const can_resume = emu.running && emu.paused;
-  const can_stop = emu.running;
-
-  const status = emu.running ? (emu.paused ? "paused" : "running") : "idle";
+  const aspect = XRES / YRES;
 
   return (
-    <div className="flex flex-col gap-6">
-      <Card className="border-zinc-800 bg-zinc-950/70">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-          <div className="min-w-0 space-y-2">
-            <div className="flex min-w-0 items-center gap-2 font-mono text-sm">
-              <span className="shrink-0 text-zinc-500">rom</span>
-              <span className="truncate text-zinc-100">
-                {rom_name || "none"}
+    <div className="flex flex-col gap-4">
+      <Card size="sm">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3 font-mono text-sm">
+            <span className="truncate">{rom_name || "no rom"}</span>
+            <StatusBadge running={emu.running} paused={emu.paused} />
+            {emu.running && !emu.paused && (
+              <span className="text-muted-foreground tabular-nums">
+                {emu.fps} fps
               </span>
-            </div>
-
-            <div className="flex items-center gap-2 font-mono text-sm">
-              <span className="text-zinc-500">status</span>
-              <StatusBadge status={status} />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500">fps</span>
-              <span className="text-zinc-100">
-                {emu.running && !emu.paused ? `${emu.fps} fps` : "—"}
-              </span>
-            </div>
+            )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            {can_start && (
+          <div className="flex flex-wrap items-center gap-2">
+            {has_rom && !emu.running && (
+              <Button size="icon" variant="secondary" aria-label="start" onClick={emu_start}>
+                <Play />
+              </Button>
+            )}
+            {emu.running && (
               <Button
-                type="button"
                 size="icon"
                 variant="secondary"
-                title="start"
-                aria-label="start"
-                onClick={() => emu_start()}
+                aria-label={emu.paused ? "resume" : "pause"}
+                onClick={emu.paused ? emu_resume : emu_pause}
               >
-                <Play className="h-4 w-4" />
+                {emu.paused ? <Play /> : <Pause />}
+              </Button>
+            )}
+            {emu.running && (
+              <Button size="icon" variant="secondary" aria-label="stop" onClick={emu_stop}>
+                <Square />
+              </Button>
+            )}
+            {fullscreen.supported && (
+              <Button
+                size="icon"
+                variant="secondary"
+                aria-label={fullscreen.active ? "exit fullscreen" : "fullscreen"}
+                onClick={fullscreen.toggle}
+              >
+                {fullscreen.active ? <Minimize /> : <Maximize />}
               </Button>
             )}
 
-            {can_pause && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="pause"
-                aria-label="pause"
-                onClick={() => emu_pause()}
-              >
-                <Pause className="h-4 w-4" />
-              </Button>
-            )}
+            <Separator orientation="vertical" className="mx-1 h-6" />
 
-            {can_resume && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="resume"
-                aria-label="resume"
-                onClick={() => emu_resume()}
-              >
-                <Play className="h-4 w-4" />
-              </Button>
-            )}
-
-            {can_stop && (
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                title="stop"
-                aria-label="stop"
-                onClick={() => emu_stop()}
-              >
-                <Square className="h-4 w-4" />
-              </Button>
-            )}
-
-            <Separator
-              orientation="vertical"
-              className="mx-1 h-8 bg-zinc-800"
+            <SettingSwitch
+              id="debug"
+              label="debug"
+              icon={Bug}
+              checked={show_debug}
+              onCheckedChange={set_show_debug}
+              className="touch:hidden"
             />
-            <KeybindSettings keybinds={keybinds} onChange={set_keybinds} />
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-2">
-              <Bug className="h-4 w-4 text-zinc-500" />
-              <span className="hidden text-xs text-zinc-400 sm:inline">
-                debug
-              </span>
-              <Switch checked={show_debug} onCheckedChange={set_show_debug} />
+            <div className="hidden mouse:block">
+              <KeybindSettings keybinds={keybinds} onChange={set_keybinds} />
             </div>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          <div
-            className={
-              show_debug
-                ? "grid items-start gap-8 lg:grid-cols-[auto_auto]"
-                : "flex flex-col"
-            }
-          >
-            <div className="flex flex-col gap-4">
-              <canvas
-                ref={canvas_ref}
-                className="block rounded-md bg-black [image-rendering:pixelated]"
-                style={{
-                  width: 480,
-                  aspectRatio: "160 / 144",
-                }}
-              />
-
-              <GamepadControls />
-            </div>
-
-            <div className={show_debug ? "block" : "hidden"}>
-              <div className="mb-2 flex items-center gap-2 font-mono text-xs text-zinc-500">
-                <Bug className="h-3.5 w-3.5" />
-                render debug
-              </div>
-
-              <canvas
-                ref={debug_canvas_ref}
-                className="block rounded-md bg-black [image-rendering:pixelated]"
-              />
-            </div>
+            <LoadRomButton on_load_rom={on_load_rom} />
           </div>
         </CardContent>
       </Card>
 
-      <KeyboardHelp keybinds={keybinds} />
+      {/* Fullscreen target: screen plus touch controls */}
+      <div
+        ref={stage_ref}
+        className={cn(
+          "flex flex-col items-center gap-6",
+          "landscape-phone:grid landscape-phone:grid-cols-[1fr_auto_1fr] landscape-phone:gap-4",
+          fullscreen.active && "justify-center bg-background p-4",
+        )}
+      >
+        {/* Landscape phone: D-pad + select on the left */}
+        <div className="hidden w-full max-w-36 flex-col items-center gap-5 justify-self-center touch:landscape-phone:flex">
+          <DPad className="w-full" />
+          <PillButton button="select" label="select" />
+        </div>
+
+        <div className="flex w-full flex-col items-center gap-3 landscape-phone:w-auto">
+          {/* Width capped so the screen fits the viewport height; the canvas
+              fills it and its height follows the canvas's own aspect ratio */}
+          <div
+            className={cn(
+              "relative",
+              fullscreen.active
+                ? "w-[min(100%,calc(100dvh*var(--screen-aspect)))]"
+                : "w-[min(100%,calc(65dvh*var(--screen-aspect)))]",
+              "landscape-phone:w-auto",
+            )}
+            style={{ "--screen-aspect": aspect } as React.CSSProperties}
+          >
+            <canvas
+              ref={canvas_ref}
+              aria-label="Game Boy screen"
+              className={cn(
+                "block aspect-(--screen-aspect) w-full rounded-md bg-black [image-rendering:pixelated]",
+                fullscreen.active && "rounded-none",
+                // Landscape: fill the height left over by the toolbar
+                fullscreen.active
+                  ? "landscape-phone:h-[calc(100dvh-2rem)]"
+                  : "landscape-phone:h-[calc(100dvh-6rem)]",
+                "landscape-phone:w-auto",
+              )}
+            />
+
+            {!has_rom && (
+              <Empty className="absolute inset-0 rounded-md border bg-card">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Gamepad2 />
+                  </EmptyMedia>
+                  <EmptyTitle>No ROM loaded</EmptyTitle>
+                  <EmptyDescription>
+                    Load a Game Boy ROM (.gb) to start playing
+                    <span className="hidden mouse:inline">
+                      , or drop one anywhere on the page
+                    </span>
+                    .
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <LoadRomButton on_load_rom={on_load_rom} variant="default" />
+                </EmptyContent>
+              </Empty>
+            )}
+          </div>
+        </div>
+
+        {/* Landscape phone: A/B + start on the right */}
+        <div className="hidden w-full max-w-36 flex-col items-center gap-5 justify-self-center touch:landscape-phone:flex">
+          <ActionButtons className="w-full" />
+          <PillButton button="start" label="start" />
+        </div>
+
+        {/* Portrait / tablet touch controls */}
+        <div className="hidden w-full max-w-md grid-cols-[1fr_auto_1fr] items-center gap-4 touch:grid landscape-phone:hidden!">
+          <DPad className="w-full max-w-36" />
+          <StartSelect className="flex-col self-end" />
+          <ActionButtons className="w-full max-w-36 justify-self-end" />
+        </div>
+      </div>
+
+      <KeyboardHints keybinds={keybinds} />
+
+      <Card size="sm" className={cn("w-fit", !show_debug && "hidden")}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Bug className="size-4" />
+            VRAM tiles
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <canvas
+            ref={debug_canvas_ref}
+            className="block rounded-md bg-black [image-rendering:pixelated]"
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

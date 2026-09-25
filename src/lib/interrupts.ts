@@ -8,7 +8,7 @@ export const INT_TIMER = 0x04;
 export const INT_SERIAL = 0x08;
 export const INT_JOYPAD = 0x10;
 
-export function int_handle(address: number): void {
+function int_handle(address: number): void {
   const ctx = cpu_get_context();
 
   emu_cycles(2);
@@ -19,7 +19,7 @@ export function int_handle(address: number): void {
   emu_cycles(2);
 }
 
-export function int_check(address: number, it: number): boolean {
+function int_check(address: number, it: number): boolean {
   const ctx = cpu_get_context();
 
   if (ctx.int_flags & it && ctx.ie_register & it) {
@@ -33,24 +33,11 @@ export function int_check(address: number, it: number): boolean {
   return false;
 }
 
+// Highest priority first: VBlank, LCD STAT, Timer, Serial, Joypad
 export function cpu_handle_interrupts(): void {
-  if (int_check(0x40, INT_VBLANK)) {
-    return;
-  }
-
-  if (int_check(0x48, INT_LCD_STAT)) {
-    return;
-  }
-
-  if (int_check(0x50, INT_TIMER)) {
-    return;
-  }
-
-  if (int_check(0x58, INT_SERIAL)) {
-    return;
-  }
-
-  if (int_check(0x60, INT_JOYPAD)) {
-    return;
+  for (let i = 0; i < 5; i++) {
+    if (int_check(0x40 + i * 8, 1 << i)) {
+      return;
+    }
   }
 }

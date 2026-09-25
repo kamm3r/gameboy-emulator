@@ -4,6 +4,11 @@
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
+/* Touchscreens (show the on-screen gamepad) vs mouse/keyboard devices */
+@custom-variant touch (@media (pointer: coarse));
+@custom-variant mouse (@media (pointer: fine));
+/* Phones held sideways: screen in the middle, controls on the sides */
+@custom-variant landscape-phone (@media (orientation: landscape) and (max-height: 540px));
 
 @theme inline {
   --font-heading: var(--font-sans);
@@ -39,6 +44,8 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-gb-action: var(--gb-action);
+  --color-gb-action-foreground: var(--gb-action-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -82,6 +89,9 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  /* Game Boy A/B button colour */
+  --gb-action: oklch(0.5 0.17 358);
+  --gb-action-foreground: oklch(0.985 0 0);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -132,6 +142,8 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* No pull-to-refresh / scroll chaining while playing on phones */
+    overscroll-behavior: none;
   }
   html {
     @apply font-sans;

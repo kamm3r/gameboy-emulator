@@ -1,5 +1,11 @@
 import { CPU_HZ, DEFAULT_MAX_BUFFERED_SAMPLES, DEFAULT_SAMPLE_RATE } from "../common";
 
+const VOLUME_SCALE = 1.0 / 7.5;
+
+export function digital_to_sample(digital: number): number {
+  return digital * VOLUME_SCALE - 1.0;
+}
+
 
 export type audio_options = {
   sample_rate?: number;

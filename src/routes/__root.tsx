@@ -11,7 +11,8 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        // viewport-fit=cover lets landscape phones use the area beside the notch
+        content: 'width=device-width, initial-scale=1, viewport-fit=cover',
       },
       { title: 'Game Boy Emulator' },
     ],
@@ -27,7 +28,8 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    // THEME_INIT_SCRIPT sets the theme class/color-scheme before hydration
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />

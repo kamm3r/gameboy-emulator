@@ -7,6 +7,7 @@ import {
 } from "@/lib/audio/queue";
 import {
   audio_set_max_buffered_samples,
+  audio_set_rate_adjust,
   audio_set_sample_rate,
 } from "@/lib/audio/apu";
 import { emu_set_audio_pump } from "@/lib/emu";
@@ -14,31 +15,21 @@ import { emu_set_audio_pump } from "@/lib/emu";
 const GAIN_VALUE = 0.35;
 
 // Keep about this much audio queued inside the AudioWorklet.
-// Increased for more headroom against main-thread jank.
 const TARGET_WORKLET_BUFFER_SECONDS = 0.15;
 
-// Main-thread pump interval. Using rAF for more reliable timing.
-const PUMP_INTERVAL_MS = 16;
+// How strongly buffer level error steers the APU sample rate
+const RATE_CONTROL_GAIN = 0.005;
 
-type WorkletStatus = {
-  type: "status";
-  available: number;
-  underflows: number;
-  capacity?: number;
-  sampleRate?: number;
-};
+type WorkletStatus = { type: "status"; available: number };
 
 export function useEmulatorAudio() {
   const emu = useEmu();
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
-  const pumpRef = useRef<number | null>(null);
-
   const workletAvailableRef = useRef(0);
-  const workletUnderflowsRef = useRef(0);
 
+  // Called by the emulator loop after each batch of frames
   const pumpSamples = useCallback(() => {
     const worklet = workletNodeRef.current;
     const audioCtx = audioCtxRef.current;
@@ -51,59 +42,38 @@ export function useEmulatorAudio() {
       audioCtx.sampleRate * TARGET_WORKLET_BUFFER_SECONDS,
     );
 
-    const needed = targetBuffered - workletAvailableRef.current;
-
-    if (needed <= 0) {
-      return;
-    }
-
     const available = audio_get_queued_sample_count();
 
-    if (available <= 0) {
+    // Steer production rate toward the target fill level (total buffered audio)
+    const fill = workletAvailableRef.current + available;
+    const error = (fill - targetBuffered) / targetBuffered;
+    audio_set_rate_adjust(1 + Math.max(-1, Math.min(1, error)) * RATE_CONTROL_GAIN);
+
+    const needed = targetBuffered - workletAvailableRef.current;
+
+    if (needed <= 0 || available <= 0) {
       return;
     }
 
-    const count = Math.min(available, needed);
-    const { left, right } = audio_consume_samples(count);
+    const { left, right } = audio_consume_samples(Math.min(available, needed));
 
     if (left.length === 0) {
       return;
     }
 
-    worklet.port.postMessage(
-      {
-        type: "samples",
-        left,
-        right,
-      },
-      [left.buffer, right.buffer],
-    );
+    worklet.port.postMessage({ type: "samples", left, right }, [
+      left.buffer,
+      right.buffer,
+    ]);
+
+    // Account for what we just sent until the next status report arrives,
+    // otherwise back-to-back pumps overfill the worklet and it drops samples
+    workletAvailableRef.current += left.length;
   }, []);
 
   useEffect(() => {
     emu_set_audio_pump(pumpSamples);
     return () => emu_set_audio_pump(null);
-  }, [pumpSamples]);
-
-  useEffect(() => {
-    // Use rAF-based pumping for more reliable timing
-    let running = true;
-
-    function pumpLoop() {
-      if (!running) return;
-      pumpSamples();
-      pumpRef.current = window.setTimeout(pumpLoop, PUMP_INTERVAL_MS);
-    }
-
-    pumpLoop();
-
-    return () => {
-      running = false;
-      if (pumpRef.current !== null) {
-        clearTimeout(pumpRef.current);
-        pumpRef.current = null;
-      }
-    };
   }, [pumpSamples]);
 
   useEffect(() => {
@@ -127,11 +97,6 @@ export function useEmulatorAudio() {
           sampleRate: 48000,
         });
 
-        if (cancelled) {
-          void audioCtx.close();
-          return;
-        }
-
         // Cache-bust in development because AudioWorklets can be cached hard.
         const workletUrl =
           process.env.NODE_ENV === "development"
@@ -153,37 +118,26 @@ export function useEmulatorAudio() {
 
         const gain = audioCtx.createGain();
         gain.gain.value = GAIN_VALUE;
+        workletNode.connect(gain).connect(audioCtx.destination);
 
-        workletNode.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        workletNode.port.onmessage = (e: MessageEvent) => {
-          const data = e.data as WorkletStatus | undefined;
-
-          if (!data || data.type !== "status") {
-            return;
+        workletNode.port.onmessage = (e: MessageEvent<WorkletStatus>) => {
+          if (e.data?.type === "status") {
+            workletAvailableRef.current = e.data.available;
           }
-
-          workletAvailableRef.current = data.available;
-          workletUnderflowsRef.current = data.underflows;
         };
 
         audioCtxRef.current = audioCtx;
         workletNodeRef.current = workletNode;
-        gainRef.current = gain;
 
         audio_set_sample_rate(audioCtx.sampleRate);
 
-        // Queue in emulator side. Increased buffer for more headroom against main-thread jank.
-        audio_set_max_buffered_samples(Math.floor(audioCtx.sampleRate * 1.0));
+        // Emulator-side queue: headroom against main-thread jank
+        audio_set_max_buffered_samples(audioCtx.sampleRate);
 
-        const resume = async () => {
+        // Browsers start audio suspended until a user gesture
+        const resume = () => {
           if (audioCtx.state === "suspended") {
-            try {
-              await audioCtx.resume();
-            } catch {
-              // ignore
-            }
+            audioCtx.resume().catch(() => {});
           }
         };
 
@@ -204,43 +158,21 @@ export function useEmulatorAudio() {
     return () => {
       cancelled = true;
       cleanupListeners?.();
-
       audio_clear_samples();
 
-      try {
-        workletNodeRef.current?.port.postMessage({ type: "clear" });
-      } catch {
-        // ignore
-      }
-
-      try {
-        workletNodeRef.current?.disconnect();
-      } catch {
-        // ignore
-      }
-
-      try {
-        gainRef.current?.disconnect();
-      } catch {
-        // ignore
-      }
-
+      // Closing the context stops and disconnects the whole graph
       const audioCtx = audioCtxRef.current;
-
       if (audioCtx && audioCtx.state !== "closed") {
         void audioCtx.close();
       }
 
       audioCtxRef.current = null;
       workletNodeRef.current = null;
-      gainRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const isRunning = emu.running && !emu.paused;
-
-    if (!isRunning) {
+    if (!emu.running || emu.paused) {
       audio_clear_samples();
       workletNodeRef.current?.port.postMessage({ type: "clear" });
       workletAvailableRef.current = 0;

@@ -1,236 +1,107 @@
-import { bus_read } from "@/lib/memory/bus";
-import { emu_get_context } from "@/lib/emu";
-import { gamepad_get_state } from "@/lib/input/gamepad";
-import { SCREEN_HEIGHT, SCREEN_WIDTH, XRES, YRES, argb_to_css, COLORS_DEFAULT } from "@/lib/common";
-import { ppu_get_context } from "@/lib/ppu/ppu";
+import { XRES, YRES } from "@/lib/common";
+import { ppu_get_context, ppu_update_dirty_tiles } from "@/lib/ppu/ppu";
 
-type ui_context = {
-  main_canvas: HTMLCanvasElement | null;
-  main_ctx: CanvasRenderingContext2D | null;
-  debug_canvas: HTMLCanvasElement | null;
-  debug_ctx: CanvasRenderingContext2D | null;
-  scale: number;
-  initialized: boolean;
-  image_data: ImageData | null;
+// Tile viewer: 384 tiles in a 16 x 24 grid with a 1px gap
+const TILES_X = 16;
+const TILES_Y = 24;
+const DEBUG_W = TILES_X * 9 - 1;
+const DEBUG_H = TILES_Y * 9 - 1;
+const DEBUG_SHADES = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
+const DEBUG_GAP = 0xff111111;
+
+type view = {
+  ctx: CanvasRenderingContext2D;
+  canvas: HTMLCanvasElement;
+  image: ImageData;
+  pixels: Uint32Array;
 };
 
-const ui: ui_context = {
-  main_canvas: null,
-  main_ctx: null,
-  debug_canvas: null,
-  debug_ctx: null,
-  scale: 4,
-  initialized: false,
-  image_data: null,
-};
+let main: view | null = null;
+let debug: view | null = null;
 
-const tile_colors = COLORS_DEFAULT;
+// scale sets a fixed CSS size; without it the canvas is sized by CSS
+function make_view(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  scale?: number,
+): view {
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Failed to get canvas 2D context");
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  ctx.imageSmoothingEnabled = false;
+
+  if (scale) {
+    canvas.style.width = `${width * scale}px`;
+    canvas.style.height = `${height * scale}px`;
+  }
+
+  const image = new ImageData(width, height);
+  return { ctx, canvas, image, pixels: new Uint32Array(image.data.buffer) };
+}
+
+// 0xAARRGGBB -> little-endian RGBA bytes (0xAABBGGRR)
+function argb_to_abgr(c: number): number {
+  return (
+    ((c & 0xff00ff00) | ((c >>> 16) & 0xff) | ((c & 0xff) << 16)) >>> 0
+  );
+}
 
 export function ui_init(
   main_canvas: HTMLCanvasElement,
   debug_canvas?: HTMLCanvasElement | null,
-  scale = 4,
+  debug_scale = 2,
 ): void {
-  const main_ctx = main_canvas.getContext("2d");
-
-  if (!main_ctx) {
-    throw new Error("Failed to get main canvas 2D context");
-  }
-
-  const debug_ctx = debug_canvas?.getContext("2d") ?? null;
-
-  ui.scale = scale;
-
-  main_canvas.width = SCREEN_WIDTH;
-  main_canvas.height = SCREEN_HEIGHT;
-  main_canvas.style.width = `${SCREEN_WIDTH * scale}px`;
-  main_canvas.style.height = `${SCREEN_HEIGHT * scale}px`;
-
-  main_ctx.imageSmoothingEnabled = false;
-
-  if (debug_canvas && debug_ctx) {
-    debug_canvas.width = (16 * 8 * scale) + (16 * scale);
-    debug_canvas.height = (32 * 8 * scale) + (64 * scale);
-    debug_ctx.imageSmoothingEnabled = false;
-  }
-
-  ui.main_canvas = main_canvas;
-  ui.main_ctx = main_ctx;
-  ui.debug_canvas = debug_canvas ?? null;
-  ui.debug_ctx = debug_ctx;
-  ui.image_data = new ImageData(XRES, YRES);
-  ui.initialized = true;
-
-  window.addEventListener("keydown", on_key_down);
-  window.addEventListener("keyup", on_key_up);
+  main = make_view(main_canvas, XRES, YRES);
+  debug = debug_canvas
+    ? make_view(debug_canvas, DEBUG_W, DEBUG_H, debug_scale)
+    : null;
 }
 
 export function ui_destroy(): void {
-  window.removeEventListener("keydown", on_key_down);
-  window.removeEventListener("keyup", on_key_up);
-
-  ui.main_canvas = null;
-  ui.main_ctx = null;
-  ui.debug_canvas = null;
-  ui.debug_ctx = null;
-  ui.image_data = null;
-  ui.initialized = false;
+  main = null;
+  debug = null;
 }
 
-function fill_rect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  color: number,
-): void {
-  ctx.fillStyle = argb_to_css(color >>> 0);
-  ctx.fillRect(x, y, w, h);
-}
+function update_debug_view(v: view): void {
+  ppu_update_dirty_tiles();
 
-function display_tile(
-  ctx: CanvasRenderingContext2D,
-  start_location: number,
-  tile_num: number,
-  x: number,
-  y: number,
-): void {
-  const scale = ui.scale;
+  const decoded = ppu_get_context().decoded_tiles;
+  v.pixels.fill(argb_to_abgr(DEBUG_GAP));
 
-  for (let tile_y = 0; tile_y < 16; tile_y += 2) {
-    const b1 = bus_read(start_location + (tile_num * 16) + tile_y);
-    const b2 = bus_read(start_location + (tile_num * 16) + tile_y + 1);
+  for (let tile = 0; tile < TILES_X * TILES_Y; tile++) {
+    const x0 = (tile % TILES_X) * 9;
+    const y0 = Math.floor(tile / TILES_X) * 9;
 
-    const row_y = y + ((tile_y / 2) * scale);
-
-    for (let bit = 7; bit >= 0; bit--) {
-      const hi = ((b1 >> bit) & 1) << 1;
-      const lo = (b2 >> bit) & 1;
-      const color = hi | lo;
-
-      const px = x + ((7 - bit) * scale);
-
-      fill_rect(ctx, px, row_y, scale, scale, tile_colors[color]);
+    for (let i = 0; i < 64; i++) {
+      const shade = DEBUG_SHADES[decoded[tile * 64 + i]];
+      v.pixels[(y0 + (i >> 3)) * DEBUG_W + x0 + (i & 7)] = argb_to_abgr(shade);
     }
   }
-}
 
-function update_dbg_window(): void {
-  if (!ui.debug_ctx || !ui.debug_canvas) {
-    return;
-  }
-
-  ui.debug_ctx.fillStyle = "#111111";
-  ui.debug_ctx.fillRect(0, 0, ui.debug_canvas.width, ui.debug_canvas.height);
-
-  const scale = ui.scale;
-  const addr = 0x8000;
-  let x_draw = 0;
-  let y_draw = 0;
-  let tile_num = 0;
-
-  for (let y = 0; y < 24; y++) {
-    for (let x = 0; x < 16; x++) {
-      display_tile(
-        ui.debug_ctx,
-        addr,
-        tile_num,
-        x_draw + (x * scale),
-        y_draw + (y * scale),
-      );
-
-      x_draw += 8 * scale;
-      tile_num++;
-    }
-
-    y_draw += 8 * scale;
-    x_draw = 0;
-  }
+  v.ctx.putImageData(v.image, 0, 0);
 }
 
 export function ui_update(): void {
-  if (!ui.initialized || !ui.main_ctx || !ui.image_data) {
+  if (!main) {
     return;
   }
 
-  const video_buffer = ppu_get_context().video_buffer;
-  const data = ui.image_data.data;
+  const video = ppu_get_context().video_buffer;
 
-  for (let i = 0; i < video_buffer.length; i++) {
-    const color = video_buffer[i] >>> 0;
-
-    const j = i * 4;
-    data[j + 0] = (color >>> 16) & 0xff;
-    data[j + 1] = (color >>> 8) & 0xff;
-    data[j + 2] = color & 0xff;
-    data[j + 3] = (color >>> 24) & 0xff;
+  for (let i = 0; i < video.length; i++) {
+    main.pixels[i] = argb_to_abgr(video[i]);
   }
 
-  ui.main_ctx.putImageData(ui.image_data, 0, 0);
+  main.ctx.putImageData(main.image, 0, 0);
 
-  update_dbg_window();
-}
-
-function ui_on_key(down: boolean, key_code: string): void {
-  const pad = gamepad_get_state();
-
-  switch (key_code) {
-    case "KeyZ":
-      pad.b = down;
-      break;
-    case "KeyX":
-      pad.a = down;
-      break;
-    case "Enter":
-      pad.start = down;
-      break;
-    case "Tab":
-      pad.select = down;
-      break;
-    case "ArrowUp":
-      pad.up = down;
-      break;
-    case "ArrowDown":
-      pad.down = down;
-      break;
-    case "ArrowLeft":
-      pad.left = down;
-      break;
-    case "ArrowRight":
-      pad.right = down;
-      break;
-  }
-}
-
-function should_prevent_default(code: string): boolean {
-  return (
-    code === "Tab" ||
-    code === "ArrowUp" ||
-    code === "ArrowDown" ||
-    code === "ArrowLeft" ||
-    code === "ArrowRight"
-  );
-}
-
-function on_key_down(e: KeyboardEvent): void {
-  if (should_prevent_default(e.code)) {
-    e.preventDefault();
-  }
-
-  ui_on_key(true, e.code);
-}
-
-function on_key_up(e: KeyboardEvent): void {
-  if (should_prevent_default(e.code)) {
-    e.preventDefault();
-  }
-
-  ui_on_key(false, e.code);
-}
-
-export function ui_handle_events(): void {
-  if (emu_get_context().die) {
-    ui_destroy();
+  // Skip the tile viewer while it's hidden (display: none)
+  if (debug && debug.canvas.offsetParent !== null) {
+    update_debug_view(debug);
   }
 }

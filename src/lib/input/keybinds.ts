@@ -44,16 +44,25 @@ export const GAMEPAD_BUTTONS: keybind_entry[] = [
   },
 ];
 
+// Both hands stay on home position: left hand on WASD with select/start on
+// Q/E, right hand on J (B) and K (A) like the console's B-left, A-right.
+// Codes are physical key positions, so this works on any keyboard layout.
+// The first key listed for a button is its primary; the rest are extras.
 export const DEFAULT_KEYBINDS: keybind_map = {
+  KeyW: "up",
+  KeyS: "down",
+  KeyA: "left",
+  KeyD: "right",
+  KeyK: "a",
+  KeyJ: "b",
+  KeyE: "start",
+  KeyQ: "select",
   ArrowUp: "up",
   ArrowDown: "down",
   ArrowLeft: "left",
   ArrowRight: "right",
-  KeyZ: "a",
-  KeyX: "b",
   Enter: "start",
   ShiftRight: "select",
-  ShiftLeft: "select",
 };
 
 export function load_keybinds(): keybind_map {
@@ -74,10 +83,9 @@ export function load_keybinds(): keybind_map {
       return DEFAULT_KEYBINDS;
     }
 
-    return {
-      ...DEFAULT_KEYBINDS,
-      ...(parsed as keybind_map),
-    };
+    // The saved map is complete (it's written on every change), so use it
+    // as-is; merging defaults back in would resurrect keys the user rebound
+    return parsed as keybind_map;
   } catch {
     return DEFAULT_KEYBINDS;
   }
@@ -94,6 +102,15 @@ export function save_keybinds(keybinds: keybind_map): void {
 export function reset_keybinds(): keybind_map {
   save_keybinds(DEFAULT_KEYBINDS);
   return DEFAULT_KEYBINDS;
+}
+
+export function get_keys_for_button(
+  keybinds: keybind_map,
+  button: gamepad_button,
+): string[] {
+  return Object.entries(keybinds)
+    .filter(([, mapped_button]) => mapped_button === button)
+    .map(([code]) => code);
 }
 
 export function get_key_for_button(

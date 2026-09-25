@@ -77,7 +77,8 @@ class EmulatorAudioProcessor extends AudioWorkletProcessor {
 
     this.statusCounter++;
 
-    if ((this.statusCounter & 15) === 0) {
+    // Report often (~every 10ms) so the main thread's fill estimate stays fresh
+    if ((this.statusCounter & 3) === 0) {
       this.port.postMessage({
         type: "status",
         available: this.available,

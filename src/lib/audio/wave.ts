@@ -1,4 +1,4 @@
-import { ctx } from "./state";
+import { ctx, digital_to_sample } from "./state";
 
 export function ch3_dac_on(nr30: number): boolean {
   return (nr30 & 0x80) !== 0;
@@ -48,7 +48,7 @@ function wave_corrupt_on_retrigger(): void {
     return;
   }
 
-  const base = ((pos >> 1) & 0x0c) & 0x0f;
+  const base = (pos >> 1) & 0x0c;
 
   ctx.wave_ram[0] = ctx.wave_ram[base];
   ctx.wave_ram[1] = ctx.wave_ram[(base + 1) & 0x0f];
@@ -126,7 +126,7 @@ export function wave_output(): number {
       break;
   }
 
-  return sample / 7.5 - 1.0;
+  return digital_to_sample(sample);
 }
 
 export function tick_wave(): void {

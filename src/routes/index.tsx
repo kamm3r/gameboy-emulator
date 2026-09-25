@@ -2,25 +2,20 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { EmulatorView } from '@/components/emulator_view'
 import { emu_init, emu_load_rom, emu_start } from '@/lib/emu'
-import { Upload } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/')({ component: App })
 
 function App() {
   const [rom_name, set_rom_name] = useState('')
+  const [dragging, set_dragging] = useState(false)
 
-  async function on_file_change(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    const buffer = await file.arrayBuffer()
-    const rom_data = new Uint8Array(buffer)
+  async function load_rom(file: File) {
+    const rom_data = new Uint8Array(await file.arrayBuffer())
 
     emu_init()
 
-    const ok = emu_load_rom(rom_data, file.name)
-    if (!ok) {
+    if (!emu_load_rom(rom_data, file.name)) {
       console.error('failed to load rom')
       set_rom_name('')
       return
@@ -31,25 +26,31 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <div className="mb-8 flex items-baseline justify-between gap-4">
-          <h1 className="text-xl font-medium">Gēmubōi</h1>
-          <Button asChild variant="secondary" size="sm">
-            <label className="cursor-pointer">
-              <Upload className="mr-2 h-4 w-4" />
-              load rom
-              <input
-                type="file"
-                accept=".gb,.gbc"
-                className="hidden"
-                onChange={on_file_change}
-              />
-            </label>
-          </Button>
-        </div>
-
-        <EmulatorView rom_name={rom_name} />
+    <div
+      className={cn(
+        'min-h-dvh transition-colors',
+        dragging && 'bg-muted',
+      )}
+      onDragOver={(e) => {
+        e.preventDefault()
+        set_dragging(true)
+      }}
+      onDragLeave={(e) => {
+        // Only when leaving the page, not when moving between children
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          set_dragging(false)
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        set_dragging(false)
+        const file = e.dataTransfer.files.item(0)
+        if (file) void load_rom(file)
+      }}
+    >
+      <div className="mx-auto flex max-w-5xl flex-col gap-4 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8 landscape-phone:py-2">
+        <h1 className="text-lg font-medium landscape-phone:hidden">Gēmubōi</h1>
+        <EmulatorView rom_name={rom_name} on_load_rom={load_rom} />
       </div>
     </div>
   )

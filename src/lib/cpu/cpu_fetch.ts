@@ -4,235 +4,136 @@ import { type cpu_context } from "@/lib/cpu/cpu";
 import { cpu_read_register, cpu_set_register } from "@/lib/cpu/cpu_util";
 import { emu_cycles } from "@/lib/emu";
 
+// Immediate operand fetches: read at PC, then advance the clock
+function read_pc8(ctx: cpu_context): number {
+  const value = bus_read(ctx.registers.PC) & 0xff;
+  emu_cycles(1);
+  ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
+  return value;
+}
+
+function read_pc16(ctx: cpu_context): number {
+  const lo = read_pc8(ctx);
+  return lo | (read_pc8(ctx) << 8);
+}
+
+// Memory operand reads: advance the clock, then read
+function read_mem(address: number): number {
+  emu_cycles(1);
+  return bus_read(address) & 0xff;
+}
+
+function set_memory_destination(ctx: cpu_context, address: number): void {
+  ctx.memory_destination = address & 0xffff;
+  ctx.destination_is_memory = true;
+}
+
+function step_hl(ctx: cpu_context, delta: number): void {
+  const hl = cpu_read_register(ctx, "RT_HL");
+  cpu_set_register(ctx, "RT_HL", (hl + delta) & 0xffff);
+}
+
+function reg_1(ctx: cpu_context): number {
+  return cpu_read_register(ctx, ctx.current_instruction!.reg_1!);
+}
+
+function reg_2(ctx: cpu_context): number {
+  return cpu_read_register(ctx, ctx.current_instruction!.reg_2!);
+}
+
 export function fetch_data(ctx: cpu_context): void {
   ctx.fetched_data = 0;
   ctx.memory_destination = 0;
   ctx.destination_is_memory = false;
 
-  if (!ctx.current_instruction) {
+  const inst = ctx.current_instruction;
+
+  if (!inst) {
     return;
   }
 
-  switch (ctx.current_instruction.mode) {
+  switch (inst.mode) {
     case "AM_IMP":
       return;
 
     case "AM_R":
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
+      ctx.fetched_data = reg_1(ctx);
       return;
 
     case "AM_R_R":
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
+      ctx.fetched_data = reg_2(ctx);
       return;
 
     case "AM_R_D8":
-      ctx.fetched_data = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
+    case "AM_R_A8":
+    case "AM_HL_SPR":
+    case "AM_D8":
+      ctx.fetched_data = read_pc8(ctx);
       return;
 
     case "AM_R_D16":
-    case "AM_D16": {
-      const lo = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-
-      const hi = bus_read((ctx.registers.PC + 1) & 0xffff) & 0xff;
-      emu_cycles(1);
-
-      ctx.fetched_data = (lo | (hi << 8)) & 0xffff;
-      ctx.registers.PC = (ctx.registers.PC + 2) & 0xffff;
+    case "AM_D16":
+      ctx.fetched_data = read_pc16(ctx);
       return;
-    }
 
     case "AM_MR_R":
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
-
-      if (ctx.current_instruction.reg_1 === "RT_C") {
-        ctx.memory_destination = (ctx.memory_destination | 0xff00) & 0xffff;
-      }
-
-      return;
-
-    case "AM_R_MR": {
-      let address =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-
-      if (ctx.current_instruction.reg_2 === "RT_C") {
-        address = (address | 0xff00) & 0xffff;
-      }
-
-      emu_cycles(1);
-      ctx.fetched_data = bus_read(address) & 0xff;
-      return;
-    }
-
-    case "AM_R_HLI": {
-      const address =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-
-      emu_cycles(1);
-      ctx.fetched_data = bus_read(address) & 0xff;
-
-      cpu_set_register(
+      ctx.fetched_data = reg_2(ctx);
+      // LD (C),A writes to 0xff00 + C
+      set_memory_destination(
         ctx,
-        "RT_HL",
-        (cpu_read_register(ctx, "RT_HL") + 1) & 0xffff,
+        inst.reg_1 === "RT_C" ? reg_1(ctx) | 0xff00 : reg_1(ctx),
       );
       return;
-    }
 
-    case "AM_R_HLD": {
-      const address =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-
-      emu_cycles(1);
-      ctx.fetched_data = bus_read(address) & 0xff;
-
-      cpu_set_register(
-        ctx,
-        "RT_HL",
-        (cpu_read_register(ctx, "RT_HL") - 1) & 0xffff,
+    case "AM_R_MR":
+      // LD A,(C) reads from 0xff00 + C
+      ctx.fetched_data = read_mem(
+        inst.reg_2 === "RT_C" ? reg_2(ctx) | 0xff00 : reg_2(ctx),
       );
       return;
-    }
 
-    case "AM_MR":
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
-
-      emu_cycles(1);
-      ctx.fetched_data = bus_read(ctx.memory_destination) & 0xff;
+    case "AM_R_HLI":
+    case "AM_R_HLD":
+      ctx.fetched_data = read_mem(reg_2(ctx));
+      step_hl(ctx, inst.mode === "AM_R_HLI" ? 1 : -1);
       return;
-
-    case "AM_R_A16": {
-      const lo = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-
-      const hi = bus_read((ctx.registers.PC + 1) & 0xffff) & 0xff;
-      emu_cycles(1);
-
-      const address = (lo | (hi << 8)) & 0xffff;
-
-      ctx.registers.PC = (ctx.registers.PC + 2) & 0xffff;
-
-      emu_cycles(1);
-      ctx.fetched_data = bus_read(address) & 0xff;
-      return;
-    }
 
     case "AM_HLI_R":
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
-
-      cpu_set_register(
-        ctx,
-        "RT_HL",
-        (cpu_read_register(ctx, "RT_HL") + 1) & 0xffff,
-      );
-      return;
-
     case "AM_HLD_R":
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
-
-      cpu_set_register(
-        ctx,
-        "RT_HL",
-        (cpu_read_register(ctx, "RT_HL") - 1) & 0xffff,
-      );
+      ctx.fetched_data = reg_2(ctx);
+      set_memory_destination(ctx, reg_1(ctx));
+      step_hl(ctx, inst.mode === "AM_HLI_R" ? 1 : -1);
       return;
 
-    case "AM_R_A8":
-      ctx.fetched_data = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
+    case "AM_MR":
+      set_memory_destination(ctx, reg_1(ctx));
+      ctx.fetched_data = read_mem(ctx.memory_destination);
+      return;
+
+    case "AM_MR_D8":
+      ctx.fetched_data = read_pc8(ctx);
+      set_memory_destination(ctx, reg_1(ctx));
       return;
 
     case "AM_A8_R":
-      ctx.memory_destination = (bus_read(ctx.registers.PC) | 0xff00) & 0xffff;
-      ctx.destination_is_memory = true;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
-      return;
-
-    case "AM_HL_SPR":
-      ctx.fetched_data = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
-      return;
-
-    case "AM_D8":
-      ctx.fetched_data = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
+      set_memory_destination(ctx, read_pc8(ctx) | 0xff00);
       return;
 
     case "AM_A16_R":
-    case "AM_D16_R": {
-      const lo = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-
-      const hi = bus_read((ctx.registers.PC + 1) & 0xffff) & 0xff;
-      emu_cycles(1);
-
-      ctx.memory_destination = (lo | (hi << 8)) & 0xffff;
-      ctx.destination_is_memory = true;
-      ctx.registers.PC = (ctx.registers.PC + 2) & 0xffff;
-      ctx.fetched_data =
-        cpu_read_register(ctx, ctx.current_instruction.reg_2!) & 0xffff;
-      return;
-    }
-
-    case "AM_MR_D8":
-      ctx.fetched_data = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-      ctx.registers.PC = (ctx.registers.PC + 1) & 0xffff;
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
+    case "AM_D16_R":
+      set_memory_destination(ctx, read_pc16(ctx));
+      ctx.fetched_data = reg_2(ctx);
       return;
 
-    case "AM_MR":
-      ctx.memory_destination =
-        cpu_read_register(ctx, ctx.current_instruction.reg_1!) & 0xffff;
-      ctx.destination_is_memory = true;
-      ctx.fetched_data = bus_read(ctx.memory_destination) & 0xff;
-      emu_cycles(1);
+    case "AM_R_A16":
+      ctx.fetched_data = read_mem(read_pc16(ctx));
       return;
-
-    case "AM_R_A16": {
-      const lo = bus_read(ctx.registers.PC) & 0xff;
-      emu_cycles(1);
-
-      const hi = bus_read((ctx.registers.PC + 1) & 0xffff) & 0xff;
-      emu_cycles(1);
-
-      const address = (lo | (hi << 8)) & 0xffff;
-
-      ctx.registers.PC = (ctx.registers.PC + 2) & 0xffff;
-      ctx.fetched_data = bus_read(address) & 0xff;
-      emu_cycles(1);
-      return;
-    }
 
     default:
       throw new Error(
         formatter(
           "Unknown Addressing Mode! %s (%02X)",
-          String(ctx.current_instruction.mode),
+          String(inst.mode),
           ctx.current_opcode,
         ),
       );
